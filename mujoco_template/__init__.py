@@ -1,36 +1,63 @@
 """Public package interface for mujoco_template."""
 
-from . import mujoco_template as _impl
+from __future__ import annotations
 
-TemplateError = _impl.TemplateError
-NameLookupError = _impl.NameLookupError
-CompatibilityError = _impl.CompatibilityError
-LinearizationError = _impl.LinearizationError
-ConfigError = _impl.ConfigError
-ControlSpace = _impl.ControlSpace
-Controller = _impl.Controller
-ControllerCapabilities = _impl.ControllerCapabilities
-ObservationSpec = _impl.ObservationSpec
-ObservationExtractor = _impl.ObservationExtractor
-ModelHandle = _impl.ModelHandle
-CompatibilityReport = _impl.CompatibilityReport
-StepResult = _impl.StepResult
-Env = _impl.Env
-ZeroController = _impl.ZeroController
-PositionTargetDemo = _impl.PositionTargetDemo
-check_controller_compat = _impl.check_controller_compat
-linearize_discrete = _impl.linearize_discrete
-compute_requested_jacobians = _impl.compute_requested_jacobians
-steady_ctrl0 = _impl.steady_ctrl0
-quick_rollout = _impl.quick_rollout
-ObservationDict = _impl.ObservationDict
-ObservationArray = _impl.ObservationArray
-Observation = _impl.Observation
-JacobianDict = _impl.JacobianDict
-JacobiansDict = _impl.JacobiansDict
-InfoDict = _impl.InfoDict
-StateSnapshot = _impl.StateSnapshot
-mj = _impl.mj
+import mujoco as mj
+
+from .compat import CompatibilityReport, check_controller_compat
+from .control import ControlSpace, Controller, ControllerCapabilities
+from .controllers import PositionTargetDemo, ZeroController
+from .env import Env, StepResult
+from .exceptions import (
+    CompatibilityError,
+    ConfigError,
+    LinearizationError,
+    NameLookupError,
+    TemplateError,
+)
+from .jacobians import compute_requested_jacobians
+from .linearization import linearize_discrete
+from .model import ModelHandle
+from .observations import ObservationExtractor, ObservationSpec
+from .rollout import quick_rollout
+from .setpoints import steady_ctrl0
+from ._typing import (
+    InfoDict,
+    JacobianDict,
+    JacobiansDict,
+    Observation,
+    ObservationArray,
+    ObservationDict,
+    StateSnapshot,
+)
+
+__doc__ = """
+MuJoCo Controller-/Model-/Environment-Agnostic Template
+Fail-Fast * Production Ready * v2
+---------------------------------
+
+What changed vs v1 (based on doc-alignment review)
+- Added subtree/body COM Jacobians: tokens `subtreecom:<body>` -> mj_jacSubtreeCom,
+  `bodycom:<body>` -> mj_jacBodyCom. (Matches LQR tutorial usage.)
+- Servo-limit policy is configurable: `strict_servo_limits` (default True). When True,
+  servo spaces require valid ctrlrange on all enabled actuators; otherwise a warning.
+- Integrated-velocity awareness: optional assertion (config) that activation limits
+  (`actlimited/actrange`) exist and are sane to avoid runaway setpoints.
+- Compatibility report now carries WARNINGS in addition to FAIL reasons. Env exposes
+  these via `Env.compat_warnings` and also includes them once in `StepResult.info`.
+- Kept the native-only rule: controllers write `data.ctrl` only, sim advances with
+  `mj_step`. No joint-to-actuator guessing; actuator GROUPS gate compatibility.
+
+Key properties (unchanged)
+- Controllers can declare `capabilities.actuator_groups`; Env will enable exactly-and-
+  only those groups (or raise on conflict).
+- Capabilities-driven precompute: `(A,B)` via `mjd_transitionFD` (native-first) with
+  tangent-correct FD fallback; requested Jacobians evaluated after the controller sets
+  `u_t` and before stepping.
+- Observation layer is declarative, name-checked, and deterministic.
+
+Requires: mujoco>=2.3, numpy
+"""
 
 __all__ = [
     "TemplateError",
@@ -79,6 +106,5 @@ if _metadata is not None:
 else:  # pragma: no cover
     __version__ = "0.0.0"
 
-__doc__ = _impl.__doc__
+__all__.append("__version__")
 
-del _impl
