@@ -278,12 +278,13 @@ class ModelHandle:
         existing = set(int(g) for g in self.model.actuator_group[: self.model.nu])
         if not any(g in existing for g in groups):
             raise CompatibilityError("None of the requested groups exist in this model.")
-        # Build 32-bit mask: bit=1 means DISABLED
+        # Build 32-bit mask: bit=1 means DISABLED for groups present in the model
         mask = 0
-        for g in range(32):
-            if g not in groups:
+        groups_set = set(groups)
+        for g in existing:
+            if g not in groups_set:
                 mask |= (1 << g)
-        self.model.opt.disableactuator = int(np.uint32(mask))
+        self.model.opt.disableactuator = int(mask)
         mj.mj_forward(self.model, self.data)
         # Ensure at least one actuator remains enabled
         if self.enabled_actuator_mask().sum() == 0:
@@ -649,7 +650,7 @@ def compute_requested_jacobians(
             if bid < 0:
                 raise NameLookupError(f"Body not found: {name}")
             jacp = np.zeros((3, model.nv))
-            mj.mj_jacBodyCom(model, data, jacp, bid)
+            mj.mj_jacBodyCom(model, data, jacp, None, bid)
             out[tok] = {"jacp": jacp}
         elif kind == "subtreecom":
             if not hasattr(mj, "mj_jacSubtreeCom"):

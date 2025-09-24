@@ -1,0 +1,19 @@
+<mujoco model="simple_pendulum">
+  <compiler angle="radian" coordinate="local"/>
+  <option timestep="0.005" gravity="0 0 -9.81" integrator="RK4"/>
+  <default>
+    <joint limited="true" damping="0.05" armature="0.0001" range="-360 360"/>
+    <geom type="capsule" size="0.02 0.25" density="1200"/>
+    <site size="0.025" rgba="0.8 0.2 0.2 1"/>
+  </default>
+  <worldbody>
+    <body name="arm" pos="0 0 0">
+      <joint name="hinge" type="hinge" axis="0 1 0"/>
+      <geom fromto="0 0 0 0 0 -0.5"/>
+      <site name="tip" pos="0 0 -0.5"/>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="torque" joint="hinge" gear="1" forcelimited="true" forcerange="-3 3"/>
+  </actuator>
+</mujoco>
