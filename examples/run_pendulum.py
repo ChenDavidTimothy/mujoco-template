@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import sys
 from pathlib import Path
 
@@ -9,12 +8,19 @@ import numpy as np
 import mujoco_template as mt
 
 LOG_COLUMNS = ("time_s", "qpos_rad", "qvel_rad", "ctrl", "tip_z_m")
+DEFAULT_HEADLESS_STEPS = 400
+SAMPLE_STRIDE = 80
+INITIAL_ANGLE_DEG = 60.0
+INITIAL_VELOCITY_DEG = 0.0
+TARGET_ANGLE_DEG = 0.0
+KP = 20.0
+KD = 4.0
 
 
 class PendulumPDController:
     """Simple PD torque controller that stabilizes the pendulum upright."""
 
-    def __init__(self, kp: float = 20.0, kd: float = 4.0, target: float = 0.0) -> None:
+    def __init__(self, kp: float, kd: float, target: float) -> None:
         self.capabilities = mt.ControllerCapabilities(control_space=mt.ControlSpace.TORQUE)
         self.kp = float(kp)
         self.kd = float(kd)
@@ -44,30 +50,10 @@ def _extract_sample(result: mt.StepResult) -> tuple[float, float, float, float, 
     return (time_s, angle, velocity, ctrl, tip_z)
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="PD-controlled pendulum demo")
-    parser.add_argument("--steps", type=int, default=400, help="Number of headless simulation steps to run.")
-    parser.add_argument(
-        "--sample-stride",
-        type=int,
-        default=80,
-        help="Step stride for console logging in headless mode.",
-    )
-    parser.add_argument("--viewer", action="store_true", help="Launch the interactive viewer instead of running headless.")
-    parser.add_argument("--duration", type=float, default=0.0, help="Optional viewer duration limit in seconds (<=0 runs until closed).")
-    parser.add_argument("--log-path", type=Path, default=None, help="Optional CSV path for writing trajectory samples.")
-    parser.add_argument("--initial-angle-deg", type=float, default=60.0, help="Initial pendulum angle in degrees.")
-    parser.add_argument("--initial-velocity-deg", type=float, default=0.0, help="Initial angular velocity in degrees per second.")
-    parser.add_argument("--target-deg", type=float, default=0.0, help="PD target angle in degrees.")
-    parser.add_argument("--kp", type=float, default=20.0, help="PD proportional gain.")
-    parser.add_argument("--kd", type=float, default=4.0, help="PD derivative gain.")
-    return parser.parse_args()
-
-
-def build_env(kp: float, kd: float, target_deg: float) -> mt.Env:
+def build_env() -> mt.Env:
     xml_path = Path(__file__).with_name("pendulum.xml")
     handle = mt.ModelHandle.from_xml_path(str(xml_path))
-    controller = PendulumPDController(kp=kp, kd=kd, target=np.deg2rad(target_deg))
+    controller = PendulumPDController(kp=KP, kd=KD, target=np.deg2rad(TARGET_ANGLE_DEG))
     obs_spec = mt.ObservationSpec(
         include_ctrl=True,
         include_sensordata=False,
@@ -77,38 +63,35 @@ def build_env(kp: float, kd: float, target_deg: float) -> mt.Env:
     return mt.Env(handle, obs_spec=obs_spec, controller=controller)
 
 
-def prepare_initial_state(
-    env: mt.Env,
-    *,
-    angle_deg: float,
-    velocity_deg: float,
-) -> None:
+def initialize_state(env: mt.Env) -> None:
     env.reset()
-    env.data.qpos[0] = np.deg2rad(angle_deg)
-    env.data.qvel[0] = np.deg2rad(velocity_deg)
+    env.data.qpos[0] = np.deg2rad(INITIAL_ANGLE_DEG)
+    env.data.qvel[0] = np.deg2rad(INITIAL_VELOCITY_DEG)
     env.handle.forward()
 
 
-def run_headless(env: mt.Env, steps: int, sample_stride: int, log_path: Path | None) -> None:
-    if steps < 1:
-        raise mt.ConfigError("steps must be >= 1")
-    sample_stride = max(1, sample_stride)
+def run_headless(env: mt.Env, options: mt.PassiveRunCLIOptions) -> None:
+    timestep = float(env.model.opt.timestep)
+    if options.duration is None:
+        max_steps = DEFAULT_HEADLESS_STEPS
+    else:
+        max_steps = max(1, int(round(options.duration / timestep)))
 
     print("Running pendulum rollout (headless)...")
     samples: list[tuple[float, float, float, float, float]] = []
 
-    with mt.TrajectoryLogger(log_path, LOG_COLUMNS, _extract_sample) as logger:
+    with mt.TrajectoryLogger(options.log_path, LOG_COLUMNS, _extract_sample) as logger:
         def on_step(result: mt.StepResult) -> None:
             row = logger.log(result)
             samples.append(row)
 
-        mt.run_passive_headless(env, max_steps=steps, hooks=on_step)
+        mt.run_passive_headless(env, max_steps=max_steps, hooks=on_step)
 
-    for idx in range(0, len(samples), sample_stride):
-        t, angle, vel, torque, tip_z = samples[idx]
+    for idx in range(0, len(samples), SAMPLE_STRIDE):
+        time_s, angle_rad, vel_rad, torque, tip_z = samples[idx]
         print(
             "t={:5.3f}s angle={:6.2f}deg vel={:6.2f}deg/s torque={:6.3f}Nm tip_z={:6.3f}m".format(
-                t, np.rad2deg(angle), np.rad2deg(vel), torque, tip_z
+                time_s, np.rad2deg(angle_rad), np.rad2deg(vel_rad), torque, tip_z
             )
         )
 
@@ -118,15 +101,15 @@ def run_headless(env: mt.Env, steps: int, sample_stride: int, log_path: Path | N
         print(f"Tip height range: {tip_z.min():.4f} m to {tip_z.max():.4f} m over {times[-1]:.3f}s")
 
 
-def run_viewer(env: mt.Env, duration: float, log_path: Path | None) -> None:
+def run_viewer(env: mt.Env, options: mt.PassiveRunCLIOptions) -> None:
     print("Launching MuJoCo viewer... close the window to exit.")
 
-    with mt.TrajectoryLogger(log_path, LOG_COLUMNS, _extract_sample) as logger:
+    with mt.TrajectoryLogger(options.log_path, LOG_COLUMNS, _extract_sample) as logger:
         def on_step(result: mt.StepResult) -> None:
             logger.log(result)
 
         try:
-            mt.run_passive_viewer(env, duration=duration if duration > 0 else None, hooks=on_step)
+            mt.run_passive_viewer(env, duration=options.duration, hooks=on_step)
         except mt.TemplateError as exc:  # pragma: no cover - viewer availability depends on platform
             raise SystemExit(str(exc)) from exc
 
@@ -134,20 +117,20 @@ def run_viewer(env: mt.Env, duration: float, log_path: Path | None) -> None:
 
 
 def main() -> None:
-    args = parse_args()
-    env = build_env(args.kp, args.kd, args.target_deg)
-    prepare_initial_state(env, angle_deg=args.initial_angle_deg, velocity_deg=args.initial_velocity_deg)
+    options = mt.parse_passive_run_cli("PD-controlled pendulum demo")
+    env = build_env()
+    initialize_state(env)
 
     print(
         "Initial angle: {:.2f} deg; velocity: {:.2f} deg/s; target: {:.2f} deg".format(
-            args.initial_angle_deg, args.initial_velocity_deg, args.target_deg
+            INITIAL_ANGLE_DEG, INITIAL_VELOCITY_DEG, TARGET_ANGLE_DEG
         )
     )
 
-    if args.viewer:
-        run_viewer(env, args.duration, args.log_path)
+    if options.viewer:
+        run_viewer(env, options)
     else:
-        run_headless(env, args.steps, args.sample_stride, args.log_path)
+        run_headless(env, options)
 
 
 if __name__ == "__main__":

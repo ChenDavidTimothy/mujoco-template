@@ -22,9 +22,12 @@ from .observations import ObservationExtractor, ObservationSpec
 from .rollout import quick_rollout
 from .setpoints import steady_ctrl0
 from .runtime import (
+    PassiveRunCLIOptions,
     StepHook,
     TrajectoryLogger,
+    add_passive_run_arguments,
     iterate_passive,
+    parse_passive_run_cli,
     run_passive_headless,
     run_passive_viewer,
 )
@@ -89,6 +92,9 @@ __all__ = [
     "steady_ctrl0",
     "quick_rollout",
     "TrajectoryLogger",
+    "PassiveRunCLIOptions",
+    "add_passive_run_arguments",
+    "parse_passive_run_cli",
     "StepHook",
     "iterate_passive",
     "run_passive_headless",

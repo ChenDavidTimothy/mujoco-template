@@ -1,15 +1,80 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
-from pathlib import Path
+import argparse
 import csv
 import time
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, IO
 
 from .env import Env, StepResult
 from .exceptions import ConfigError, TemplateError
 
 StepHook = Callable[[StepResult], None]
+
+
+@dataclass(frozen=True)
+class PassiveRunCLIOptions:
+    viewer: bool
+    duration: float | None
+    log_path: Path | None
+
+
+def add_passive_run_arguments(parser: argparse.ArgumentParser) -> None:
+    """Attach common passive-run CLI toggles to an argument parser."""
+
+    parser.add_argument(
+        "--viewer",
+        action="store_true",
+        help="Launch the interactive MuJoCo viewer instead of running headless.",
+    )
+    parser.add_argument(
+        "--log-path",
+        type=Path,
+        default=None,
+        help="Optional CSV path for writing trajectory samples.",
+    )
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=0.0,
+        help=(
+            "Simulation duration in seconds. Use <=0 for unlimited headless runs or "
+            "until the viewer window is closed."
+        ),
+    )
+
+
+def _options_from_namespace(namespace: argparse.Namespace) -> PassiveRunCLIOptions:
+    duration_raw = getattr(namespace, "duration", 0.0)
+    duration: float | None
+    if duration_raw is None or duration_raw <= 0:
+        duration = None
+    else:
+        duration = float(duration_raw)
+
+    log_path = getattr(namespace, "log_path", None)
+    if log_path is not None and not isinstance(log_path, Path):
+        log_path = Path(log_path)
+
+    viewer = bool(getattr(namespace, "viewer", False))
+    return PassiveRunCLIOptions(viewer=viewer, duration=duration, log_path=log_path)
+
+
+def parse_passive_run_cli(
+    description: str | None = None,
+    *,
+    args: Sequence[str] | None = None,
+    parser: argparse.ArgumentParser | None = None,
+) -> PassiveRunCLIOptions:
+    """Parse the standard passive-run CLI flags into a structured options object."""
+
+    local_parser = parser if parser is not None else argparse.ArgumentParser(description=description)
+    if parser is None:
+        add_passive_run_arguments(local_parser)
+    namespace = local_parser.parse_args(args=args)
+    return _options_from_namespace(namespace)
 
 
 class TrajectoryLogger:
@@ -172,6 +237,9 @@ def run_passive_viewer(
 __all__ = [
     "StepHook",
     "TrajectoryLogger",
+    "PassiveRunCLIOptions",
+    "add_passive_run_arguments",
+    "parse_passive_run_cli",
     "iterate_passive",
     "run_passive_headless",
     "run_passive_viewer",
