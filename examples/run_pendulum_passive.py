@@ -15,8 +15,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--duration",
         type=float,
-        default=3.0,
-        help="Simulation duration in seconds; use <=0 to run until the viewer closes.",
+        default=0.0,
+        help=(
+            "Simulation duration in seconds; use <=0 to run until the viewer closes "
+            "(viewer mode) or for a default 600 steps headless."
+        ),
     )
     parser.add_argument(
         "--viewer",
