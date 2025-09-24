@@ -1,0 +1,34 @@
+<mujoco model="cartpole">
+  <compiler angle="radian" coordinate="local" inertiafromgeom="true"/>
+  <option timestep="0.01" gravity="0 0 -9.81"/>
+
+  <default>
+    <geom type="box" rgba="0.8 0.3 0.3 1" density="500" friction="1 0.1 0.1"/>
+    <joint damping="1" armature="0"/>
+  </default>
+
+  <asset>
+    <texture name="skybox" type="skybox" builtin="gradient" rgb1="0.6 0.7 0.8" rgb2="0 0 0" width="256" height="256"/>
+    <texture name="ground" builtin="checker" rgb1="0.2 0.3 0.4" rgb2="0.1 0.15 0.2" width="512" height="512"/>
+    <material name="ground" texture="ground" texrepeat="60 60" reflectance="0.2"/>
+  </asset>
+
+  <worldbody>
+    <geom name="floor" type="plane" material="ground" size="5 5 0.1" rgba="0.8 0.9 0.8 1"/>
+
+    <body name="cart" pos="0 0 0.05">
+      <joint name="slider" type="slide" axis="1 0 0" limited="true" range="-2 2"/>
+      <geom name="cart" type="box" size="0.12 0.2 0.05" rgba="0.9 0.3 0.3 1"/>
+
+      <body name="pole" pos="0 0 0.05">
+        <joint name="hinge" type="hinge" axis="0 1 0" damping="0.1"/>
+        <geom name="pole" type="capsule" fromto="0 0 0 0 0 0.6" size="0.025" density="300" rgba="0.2 0.6 0.9 1"/>
+        <site name="tip" pos="0 0 0.6" size="0.03" rgba="0.2 0.9 0.2 1"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <motor name="cart_force" joint="slider" gear="50" ctrllimited="true" ctrlrange="-200 200"/>
+  </actuator>
+</mujoco>

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 import numpy as np
 
 import mujoco_template as mt
+from pendulum_common import initialize_state as seed_pendulum, make_env as make_pendulum_env
 
 LOG_COLUMNS = ("time_s", "qpos_rad", "qvel_rad", "tip_z_m")
 DEFAULT_HEADLESS_STEPS = 600
@@ -24,22 +24,13 @@ def _extract_sample(result: mt.StepResult) -> tuple[float, float, float, float]:
 
 
 def build_env() -> mt.Env:
-    xml_path = Path(__file__).with_name("pendulum.xml")
-    handle = mt.ModelHandle.from_xml_path(str(xml_path))
     obs_spec = mt.ObservationSpec(
         include_ctrl=False,
         include_sensordata=False,
         include_time=True,
         sites_pos=("tip",),
     )
-    return mt.Env(handle, obs_spec=obs_spec)
-
-
-def initialize_state(env: mt.Env) -> None:
-    env.reset()
-    env.data.qpos[0] = np.deg2rad(INITIAL_ANGLE_DEG)
-    env.data.qvel[0] = np.deg2rad(INITIAL_VELOCITY_DEG)
-    env.handle.forward()
+    return make_pendulum_env(obs_spec=obs_spec)
 
 
 def run_headless(env: mt.Env, options: mt.PassiveRunCLIOptions) -> None:
@@ -90,7 +81,7 @@ def run_viewer(env: mt.Env, options: mt.PassiveRunCLIOptions) -> None:
 def main() -> None:
     options = mt.parse_passive_run_cli("Passive pendulum simulation example")
     env = build_env()
-    initialize_state(env)
+    seed_pendulum(env, angle_deg=INITIAL_ANGLE_DEG, velocity_deg=INITIAL_VELOCITY_DEG)
 
     print(
         "Initial pendulum angle: {:.2f} deg; velocity: {:.2f} deg/s".format(
