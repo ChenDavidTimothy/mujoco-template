@@ -21,6 +21,13 @@ from .model import ModelHandle
 from .observations import ObservationExtractor, ObservationSpec
 from .rollout import quick_rollout
 from .setpoints import steady_ctrl0
+from .runtime import (
+    StepHook,
+    TrajectoryLogger,
+    iterate_passive,
+    run_passive_headless,
+    run_passive_viewer,
+)
 from ._typing import (
     InfoDict,
     JacobianDict,
@@ -81,6 +88,11 @@ __all__ = [
     "compute_requested_jacobians",
     "steady_ctrl0",
     "quick_rollout",
+    "TrajectoryLogger",
+    "StepHook",
+    "iterate_passive",
+    "run_passive_headless",
+    "run_passive_viewer",
     "ObservationDict",
     "ObservationArray",
     "Observation",

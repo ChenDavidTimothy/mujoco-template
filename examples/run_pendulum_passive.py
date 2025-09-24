@@ -1,92 +1,76 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import sys
-import time
 from pathlib import Path
 
 import numpy as np
 
 import mujoco_template as mt
 
+LOG_COLUMNS = ("time_s", "qpos_rad", "qvel_rad", "tip_z_m")
 
-class TrajectoryLogger:
-    """Optional CSV logger for research rollouts."""
 
-    def __init__(self, path: Path | None):
-        self._path = path
-        self._file = None
-        self._writer = None
-
-    def __enter__(self) -> "TrajectoryLogger":
-        if self._path is not None:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._file = self._path.open('w', newline='')
-            self._writer = csv.writer(self._file)
-            self._writer.writerow(['time_s', 'qpos_rad', 'qvel_rad', 'tip_z_m'])
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        if self._file is not None:
-            self._file.close()
-
-    def log(self, time_s: float, qpos: float, qvel: float, tip_z: float) -> None:
-        if self._writer is not None:
-            self._writer.writerow([time_s, qpos, qvel, tip_z])
+def _extract_sample(result: mt.StepResult) -> tuple[float, float, float, float]:
+    obs = result.obs
+    time_s = float(obs["time"][0])
+    angle = float(obs["qpos"][0])
+    velocity = float(obs["qvel"][0])
+    tip_z = float(obs["sites_pos"][0, 2])
+    return (time_s, angle, velocity, tip_z)
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description='Passive pendulum simulation example')
+    parser = argparse.ArgumentParser(description="Passive pendulum simulation example")
     parser.add_argument(
-        '--duration',
+        "--duration",
         type=float,
         default=0.0,
         help=(
-            'Simulation duration in seconds; use <=0 to run until the viewer closes '
-            '(viewer mode) or for a default 600 steps headless.'
+            "Simulation duration in seconds; use <=0 to run until the viewer closes "
+            "(viewer mode) or for a default 600 steps headless."
         ),
     )
     parser.add_argument(
-        '--viewer',
-        action='store_true',
-        help='Launch the interactive MuJoCo viewer instead of logging samples.',
+        "--viewer",
+        action="store_true",
+        help="Launch the interactive MuJoCo viewer instead of logging samples.",
     )
     parser.add_argument(
-        '--sample-stride',
+        "--sample-stride",
         type=int,
         default=120,
-        help='Step stride for console logging in headless mode.',
+        help="Step stride for console logging in headless mode.",
     )
     parser.add_argument(
-        '--seed',
+        "--seed",
         type=int,
         default=None,
-        help='Random seed for reproducibility.',
+        help="Random seed for reproducibility.",
     )
     parser.add_argument(
-        '--initial-angle-deg',
+        "--initial-angle-deg",
         type=float,
         default=90.0,
-        help='Initial pendulum angle in degrees; 0 points down.',
+        help="Initial pendulum angle in degrees; 0 points down.",
     )
     parser.add_argument(
-        '--initial-velocity-deg',
+        "--initial-velocity-deg",
         type=float,
         default=0.0,
-        help='Initial angular velocity in degrees per second.',
+        help="Initial angular velocity in degrees per second.",
     )
     parser.add_argument(
-        '--initial-angle-noise-deg',
+        "--initial-angle-noise-deg",
         type=float,
         default=0.0,
-        help='Gaussian noise (std dev in degrees) added to the initial angle.',
+        help="Gaussian noise (std dev in degrees) added to the initial angle.",
     )
     parser.add_argument(
-        '--log-path',
+        "--log-path",
         type=Path,
         default=None,
-        help='Optional CSV path for writing trajectory samples.',
+        help="Optional CSV path for writing trajectory samples.",
     )
     return parser.parse_args()
 
@@ -110,13 +94,13 @@ def prepare_initial_state(
 
 
 def build_env() -> mt.Env:
-    xml_path = Path(__file__).with_name('pendulum.xml')
+    xml_path = Path(__file__).with_name("pendulum.xml")
     handle = mt.ModelHandle.from_xml_path(str(xml_path))
     obs_spec = mt.ObservationSpec(
         include_ctrl=False,
         include_sensordata=False,
         include_time=True,
-        sites_pos=('tip',),
+        sites_pos=("tip",),
     )
     return mt.Env(handle, obs_spec=obs_spec)
 
@@ -129,39 +113,36 @@ def run_headless(
 ) -> None:
     timestep = float(env.model.opt.timestep)
     if duration <= 0:
-        steps = 600
+        max_steps = 600
     else:
-        steps = max(1, int(round(duration / timestep)))
+        max_steps = max(1, int(round(duration / timestep)))
     sample_stride = max(1, sample_stride)
 
-    print('Running passive pendulum rollout (headless)...')
+    print("Running passive pendulum rollout (headless)...")
     samples: list[tuple[float, float, float, float]] = []
-    with TrajectoryLogger(log_path) as logger:
+
+    with mt.TrajectoryLogger(log_path, LOG_COLUMNS, _extract_sample) as logger:
+        def on_step(result: mt.StepResult) -> None:
+            row = logger.log(result)
+            samples.append(row)
+
         try:
-            for _ in range(steps):
-                res = env.step()
-                obs = res.obs
-                time_s = float(obs['time'][0])
-                angle = float(obs['qpos'][0])
-                vel = float(obs['qvel'][0])
-                tip_z = float(obs['sites_pos'][0, 2])
-                samples.append((time_s, angle, vel, tip_z))
-                logger.log(time_s, angle, vel, tip_z)
+            mt.run_passive_headless(env, max_steps=max_steps, hooks=on_step)
         except Exception as exc:  # pragma: no cover - propagate message upwards
-            print(f'Simulation step failed: {exc}', file=sys.stderr)
+            print(f"Simulation step failed: {exc}", file=sys.stderr)
             raise
 
     for idx in range(0, len(samples), sample_stride):
-        t, angle, vel, tip_z = samples[idx]
+        time_s, angle_rad, vel_rad, tip_z = samples[idx]
         print(
-            f"t={t:5.3f}s angle={np.rad2deg(angle):6.2f}deg "
-            f"vel={np.rad2deg(vel):6.2f}deg/s tip_z={tip_z:6.3f}m"
+            f"t={time_s:5.3f}s angle={np.rad2deg(angle_rad):6.2f}deg "
+            f"vel={np.rad2deg(vel_rad):6.2f}deg/s tip_z={tip_z:6.3f}m"
         )
 
     if samples:
         times = np.array([s[0] for s in samples], dtype=float)
         tip_z = np.array([s[3] for s in samples], dtype=float)
-        print(f'Tip height range: {tip_z.min():.4f} m to {tip_z.max():.4f} m over {times[-1]:.3f}s')
+        print(f"Tip height range: {tip_z.min():.4f} m to {tip_z.max():.4f} m over {times[-1]:.3f}s")
 
 
 def run_viewer(
@@ -169,39 +150,25 @@ def run_viewer(
     duration: float,
     log_path: Path | None,
 ) -> None:
-    try:
-        import mujoco.viewer as mj_viewer
-    except Exception as exc:  # pragma: no cover - viewer availability depends on platform
-        raise SystemExit(f'MuJoCo viewer is unavailable: {exc}') from exc
+    print("Launching MuJoCo viewer... close the window to exit.")
 
-    timestep = float(env.model.opt.timestep)
-    print('Launching MuJoCo viewer... close the window to exit.')
+    with mt.TrajectoryLogger(log_path, LOG_COLUMNS, _extract_sample) as logger:
+        def on_step(result: mt.StepResult) -> None:
+            logger.log(result)
 
-    with TrajectoryLogger(log_path) as logger:
-        with mj_viewer.launch_passive(env.model, env.data) as viewer:
-            while viewer.is_running():
-                step_start = time.perf_counter()
-                try:
-                    res = env.step()
-                except Exception as exc:  # pragma: no cover - propagate message upwards
-                    print(f'Simulation step failed: {exc}', file=sys.stderr)
-                    raise
-                obs = res.obs
-                time_s = float(obs['time'][0])
-                angle = float(obs['qpos'][0])
-                vel = float(obs['qvel'][0])
-                tip_z = float(obs['sites_pos'][0, 2])
-                logger.log(time_s, angle, vel, tip_z)
-                viewer.sync()
+        try:
+            mt.run_passive_viewer(
+                env,
+                duration=duration if duration > 0 else None,
+                hooks=on_step,
+            )
+        except mt.TemplateError as exc:  # pragma: no cover - viewer availability depends on platform
+            raise SystemExit(str(exc)) from exc
+        except Exception as exc:  # pragma: no cover - propagate message upwards
+            print(f"Simulation step failed: {exc}", file=sys.stderr)
+            raise
 
-                if duration > 0 and env.data.time >= duration:
-                    break
-
-                remainder = timestep - (time.perf_counter() - step_start)
-                if remainder > 0:
-                    time.sleep(remainder)
-
-    print('Viewer closed. Final simulated time: {:.3f}s'.format(env.data.time))
+    print("Viewer closed. Final simulated time: {:.3f}s".format(env.data.time))
 
 
 def main() -> None:
@@ -215,7 +182,7 @@ def main() -> None:
         rng=rng,
         angle_noise_deg=args.initial_angle_noise_deg,
     )
-    print(f'Initial pendulum angle: {angle_deg:.2f} deg; velocity: {args.initial_velocity_deg:.2f} deg/s')
+    print(f"Initial pendulum angle: {angle_deg:.2f} deg; velocity: {args.initial_velocity_deg:.2f} deg/s")
 
     if args.viewer:
         run_viewer(env, args.duration, args.log_path)
@@ -223,7 +190,7 @@ def main() -> None:
         run_headless(env, args.duration, args.sample_stride, args.log_path)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
