@@ -31,6 +31,7 @@ from .runtime import (
     run_passive_headless,
     run_passive_viewer,
 )
+from .logging import DataProbe, StateControlRecorder
 from ._typing import (
     InfoDict,
     JacobianDict,
@@ -92,6 +93,8 @@ __all__ = [
     "steady_ctrl0",
     "quick_rollout",
     "TrajectoryLogger",
+    "DataProbe",
+    "StateControlRecorder",
     "PassiveRunCLIOptions",
     "add_passive_run_arguments",
     "parse_passive_run_cli",

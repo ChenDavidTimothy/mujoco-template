@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -22,7 +22,7 @@ def make_env(
     controller: mt.Controller | None = None,
     **env_kwargs: Any,
 ) -> mt.Env:
-    """Construct an `Env` for the pendulum using the given observation spec and controller."""
+    """Construct an Env for the pendulum using the given observation spec and controller."""
 
     handle = load_model_handle()
     return mt.Env(handle, obs_spec=obs_spec, controller=controller, **env_kwargs)
@@ -42,9 +42,62 @@ def initialize_state(
     env.handle.forward()
 
 
+def require_site_id(model: mt.mj.MjModel, name: str) -> int:
+    site_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_SITE, name))
+    if site_id < 0:
+        raise mt.NameLookupError(f"Site not found in model: {name}")
+    return site_id
+
+
+def resolve_joint_label(model: mt.mj.MjModel, name: str) -> str:
+    joint_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_JOINT, name))
+    if joint_id < 0:
+        raise mt.NameLookupError(f"Joint not found in model: {name}")
+    resolved = mt.mj.mj_id2name(model, mt.mj.mjtObj.mjOBJ_JOINT, joint_id)
+    return resolved if resolved is not None else f"joint_{joint_id}"
+
+
+def resolve_actuator_label(model: mt.mj.MjModel, name: str) -> str:
+    actuator_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_ACTUATOR, name))
+    if actuator_id < 0:
+        raise mt.NameLookupError(f"Actuator not found in model: {name}")
+    resolved = mt.mj.mj_id2name(model, mt.mj.mjtObj.mjOBJ_ACTUATOR, actuator_id)
+    return resolved if resolved is not None else f"actuator_{actuator_id}"
+
+
+def make_tip_probes(env: mt.Env) -> tuple[mt.DataProbe, ...]:
+    tip_id = require_site_id(env.model, "tip")
+    return (
+        mt.DataProbe("tip_x_m", lambda e, _r, sid=tip_id: float(e.data.site_xpos[sid, 0])),
+        mt.DataProbe("tip_z_m", lambda e, _r, sid=tip_id: float(e.data.site_xpos[sid, 2])),
+    )
+
+
+def resolve_pendulum_columns(model: mt.mj.MjModel) -> dict[str, str]:
+    hinge_label = resolve_joint_label(model, "hinge")
+    if model.nu > 0:
+        actuator_label = resolve_actuator_label(model, "torque")
+        ctrl_column = f"ctrl[{actuator_label}]"
+    else:
+        ctrl_column = "ctrl[none]"
+    return {
+        "time": "time_s",
+        "angle": f"qpos[{hinge_label}]",
+        "velocity": f"qvel[{hinge_label}]",
+        "ctrl": ctrl_column,
+        "tip_x": "tip_x_m",
+        "tip_z": "tip_z_m",
+    }
+
+
 __all__ = [
     "PENDULUM_XML",
     "initialize_state",
     "load_model_handle",
     "make_env",
+    "require_site_id",
+    "resolve_actuator_label",
+    "resolve_joint_label",
+    "make_tip_probes",
+    "resolve_pendulum_columns",
 ]

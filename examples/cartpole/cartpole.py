@@ -7,16 +7,6 @@ import numpy as np
 import mujoco_template as mt
 from cartpole_common import initialize_state as seed_cartpole, make_env as make_cartpole_env
 
-LOG_COLUMNS = (
-    "time_s",
-    "cart_x_m",
-    "cart_xdot_mps",
-    "pole_angle_rad",
-    "pole_ang_vel_rps",
-    "cart_force_N",
-    "tip_x_m",
-    "tip_z_m",
-)
 DEFAULT_HEADLESS_STEPS = 2000
 SAMPLE_STRIDE = 50
 INITIAL_CART_POS = 0.0
@@ -81,16 +71,51 @@ class CartPolePIDController:
         data.ctrl[0] = force
 
 
-def _extract_sample(result: mt.StepResult) -> tuple[float, ...]:
-    obs = result.obs
-    time_s = float(obs["time"][0])
-    cart_x = float(obs["qpos"][0])
-    pole_angle = float(obs["qpos"][1])
-    cart_vel = float(obs["qvel"][0])
-    pole_ang_vel = float(obs["qvel"][1])
-    force = float(obs["ctrl"][0])
-    tip = obs["sites_pos"][0]
-    return (time_s, cart_x, cart_vel, pole_angle, pole_ang_vel, force, float(tip[0]), float(tip[2]))
+def _require_site_id(model: mt.mj.MjModel, name: str) -> int:
+    site_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_SITE, name))
+    if site_id < 0:
+        raise mt.NameLookupError(f"Site not found in model: {name}")
+    return site_id
+
+
+def _resolve_joint_label(model: mt.mj.MjModel, name: str) -> str:
+    joint_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_JOINT, name))
+    if joint_id < 0:
+        raise mt.NameLookupError(f"Joint not found in model: {name}")
+    resolved = mt.mj.mj_id2name(model, mt.mj.mjtObj.mjOBJ_JOINT, joint_id)
+    return resolved if resolved is not None else f"joint_{joint_id}"
+
+
+def _resolve_actuator_label(model: mt.mj.MjModel, name: str) -> str:
+    actuator_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_ACTUATOR, name))
+    if actuator_id < 0:
+        raise mt.NameLookupError(f"Actuator not found in model: {name}")
+    resolved = mt.mj.mj_id2name(model, mt.mj.mjtObj.mjOBJ_ACTUATOR, actuator_id)
+    return resolved if resolved is not None else f"actuator_{actuator_id}"
+
+
+def _make_tip_probes(env: mt.Env) -> tuple[mt.DataProbe, ...]:
+    tip_id = _require_site_id(env.model, "tip")
+    return (
+        mt.DataProbe("tip_x_m", lambda e, _r, sid=tip_id: float(e.data.site_xpos[sid, 0])),
+        mt.DataProbe("tip_z_m", lambda e, _r, sid=tip_id: float(e.data.site_xpos[sid, 2])),
+    )
+
+
+def _resolve_primary_columns(model: mt.mj.MjModel) -> dict[str, str]:
+    slider_label = _resolve_joint_label(model, "slider")
+    hinge_label = _resolve_joint_label(model, "hinge")
+    actuator_label = _resolve_actuator_label(model, "cart_force")
+    return {
+        "time": "time_s",
+        "cart_pos": f"qpos[{slider_label}]",
+        "cart_vel": f"qvel[{slider_label}]",
+        "pole_angle": f"qpos[{hinge_label}]",
+        "pole_vel": f"qvel[{hinge_label}]",
+        "force": f"ctrl[{actuator_label}]",
+        "tip_x": "tip_x_m",
+        "tip_z": "tip_z_m",
+    }
 
 
 def build_env() -> mt.Env:
@@ -112,48 +137,59 @@ def run_headless(env: mt.Env, options: mt.PassiveRunCLIOptions) -> None:
         max_steps = max(1, int(round(options.duration / timestep)))
 
     print("Running cartpole PID rollout (headless)...")
-    samples: list[tuple[float, ...]] = []
+    probes = _make_tip_probes(env)
+    columns = _resolve_primary_columns(env.model)
 
-    with mt.TrajectoryLogger(options.log_path, LOG_COLUMNS, _extract_sample) as logger:
-        def on_step(result: mt.StepResult) -> None:
-            row = logger.log(result)
-            samples.append(row)
+    with mt.StateControlRecorder(env, log_path=options.log_path, probes=probes) as recorder:
+        mt.run_passive_headless(env, max_steps=max_steps, hooks=recorder)
+        rows = list(recorder.rows)
+        column_index = recorder.column_index
 
-        mt.run_passive_headless(env, max_steps=max_steps, hooks=on_step)
+    if not rows:
+        print("No simulation steps executed.")
+        return
 
-    for idx in range(0, len(samples), SAMPLE_STRIDE):
-        time_s, cart_x, cart_vel, pole_angle, pole_ang_vel, force, tip_x, tip_z = samples[idx]
+    time_idx = column_index[columns["time"]]
+    cart_pos_idx = column_index[columns["cart_pos"]]
+    cart_vel_idx = column_index[columns["cart_vel"]]
+    pole_angle_idx = column_index[columns["pole_angle"]]
+    pole_vel_idx = column_index[columns["pole_vel"]]
+    force_idx = column_index[columns["force"]]
+    tip_z_idx = column_index[columns["tip_z"]]
+
+    for idx in range(0, len(rows), SAMPLE_STRIDE):
+        row = rows[idx]
         print(
             "t={:5.2f}s cart={:6.3f}m cartdot={:6.3f}m/s pole={:6.2f}deg poledot={:6.2f}deg/s force={:6.2f}N tip_z={:6.3f}m".format(
-                time_s,
-                cart_x,
-                cart_vel,
-                np.rad2deg(pole_angle),
-                np.rad2deg(pole_ang_vel),
-                force,
-                tip_z,
+                float(row[time_idx]),
+                float(row[cart_pos_idx]),
+                float(row[cart_vel_idx]),
+                float(np.rad2deg(row[pole_angle_idx])),
+                float(np.rad2deg(row[pole_vel_idx])),
+                float(row[force_idx]),
+                float(row[tip_z_idx]),
             )
         )
 
-    if samples:
-        pole_angles = np.array([np.rad2deg(s[3]) for s in samples], dtype=float)
-        tip_z = np.array([s[7] for s in samples], dtype=float)
-        print(
-            "Pole angle range: {:.2f} deg to {:.2f} deg | Tip height range: {:.3f} m to {:.3f} m".format(
-                float(pole_angles.min()), float(pole_angles.max()), float(tip_z.min()), float(tip_z.max())
-            )
+    pole_angles_deg = np.array([np.rad2deg(row[pole_angle_idx]) for row in rows], dtype=float)
+    tip_z = np.array([row[tip_z_idx] for row in rows], dtype=float)
+    print(
+        "Pole angle range: {:.2f} deg to {:.2f} deg | Tip height range: {:.3f} m to {:.3f} m".format(
+            float(pole_angles_deg.min()),
+            float(pole_angles_deg.max()),
+            float(tip_z.min()),
+            float(tip_z.max()),
         )
+    )
 
 
 def run_viewer(env: mt.Env, options: mt.PassiveRunCLIOptions) -> None:
     print("Launching MuJoCo viewer... close the window to exit.")
 
-    with mt.TrajectoryLogger(options.log_path, LOG_COLUMNS, _extract_sample) as logger:
-        def on_step(result: mt.StepResult) -> None:
-            logger.log(result)
-
+    probes = _make_tip_probes(env)
+    with mt.StateControlRecorder(env, log_path=options.log_path, store_rows=False, probes=probes) as recorder:
         try:
-            mt.run_passive_viewer(env, duration=options.duration, hooks=on_step)
+            mt.run_passive_viewer(env, duration=options.duration, hooks=recorder)
         except mt.TemplateError as exc:  # pragma: no cover - viewer availability depends on platform
             raise SystemExit(str(exc)) from exc
 
