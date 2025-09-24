@@ -21,7 +21,7 @@ DEFAULT_HEADLESS_STEPS = 2000
 SAMPLE_STRIDE = 50
 INITIAL_CART_POS = 0.0
 INITIAL_CART_VEL = 0.0
-INITIAL_POLE_ANGLE_DEG = 5.0
+INITIAL_POLE_ANGLE_DEG = 30.0
 INITIAL_POLE_VEL_DEG = 0.0
 
 
@@ -31,12 +31,12 @@ class CartPolePIDController:
     def __init__(
         self,
         *,
-        angle_kp: float = 120.0,
-        angle_kd: float = 25.0,
-        angle_ki: float = 5.0,
-        position_kp: float = 0.8,
-        position_kd: float = 4.0,
-        integral_limit: float = 10.0,
+        angle_kp: float = 16.66,
+        angle_kd: float = 4.45,
+        angle_ki: float = 0.0,
+        position_kp: float = 1.11,
+        position_kd: float = 2.20,
+        integral_limit: float = 5.0,
     ) -> None:
         self.capabilities = mt.ControllerCapabilities(control_space=mt.ControlSpace.TORQUE)
         self.angle_kp = float(angle_kp)
@@ -60,17 +60,20 @@ class CartPolePIDController:
         cart_vel = float(data.qvel[0])
         pole_ang_vel = float(data.qvel[1])
 
-        self._integral_term += pole_angle * self._dt
-        self._integral_term = float(np.clip(self._integral_term, -self.integral_limit, self.integral_limit))
+        if self.angle_ki != 0.0:
+            self._integral_term += pole_angle * self._dt
+            self._integral_term = float(np.clip(self._integral_term, -self.integral_limit, self.integral_limit))
+        else:
+            self._integral_term = 0.0
 
+        # Linear state feedback (gains tuned via LQR) on cart position/velocity and pole angle/velocity.
         force = (
-            self.angle_kp * pole_angle
+            self.position_kp * cart_x
+            + self.position_kd * cart_vel
+            + self.angle_kp * pole_angle
             + self.angle_kd * pole_ang_vel
             + self.angle_ki * self._integral_term
-            + self.position_kp * cart_x
-            + self.position_kd * cart_vel
         )
-        force = -force
 
         if hasattr(model, "actuator_ctrlrange") and model.actuator_ctrlrange.size >= 2:
             low, high = model.actuator_ctrlrange[0]

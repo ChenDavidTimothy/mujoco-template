@@ -16,11 +16,11 @@
   <worldbody>
     <geom name="floor" type="plane" material="ground" size="5 5 0.1" rgba="0.8 0.9 0.8 1"/>
 
-    <body name="cart" pos="0 0 0.05">
+    <body name="cart" pos="0 0 0.055">
       <joint name="slider" type="slide" axis="1 0 0" limited="true" range="-2 2"/>
       <geom name="cart" type="box" size="0.12 0.2 0.05" rgba="0.9 0.3 0.3 1"/>
 
-      <body name="pole" pos="0 0 0.05">
+      <body name="pole" pos="0 0 0.045">
         <joint name="hinge" type="hinge" axis="0 1 0" damping="0.1"/>
         <geom name="pole" type="capsule" fromto="0 0 0 0 0 0.6" size="0.025" density="300" rgba="0.2 0.6 0.9 1"/>
         <site name="tip" pos="0 0 0.6" size="0.03" rgba="0.2 0.9 0.2 1"/>
