@@ -1,0 +1,17 @@
+{
+  "include": [
+    "."
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.git"
+  ],
+  "ignore": [
+    "mujoco"
+  ],
+  "reportMissingTypeStubs": false,
+  "reportMissingImports": false,
+  "pythonVersion": "3.10",
+  "typeCheckingMode": "strict"
+}
