@@ -187,6 +187,8 @@ class ObservationExtractor:
                 pos[i] = data.geom_xpos[gid]
             out["geoms_pos"] = pos
         if self.subtree_ids:
+            if not hasattr(mj, "mj_subtreeCoM"):
+                raise ConfigError("ObservationSpec requested subtree_com but this MuJoCo build lacks mj_subtreeCoM().")
             mj.mj_subtreeCoM(self.model, data)
             pos = np.zeros((len(self.subtree_ids), 3))
             for i, bid in enumerate(self.subtree_ids):
@@ -281,7 +283,7 @@ class ModelHandle:
         for g in range(32):
             if g not in groups:
                 mask |= (1 << g)
-        self.model.opt.disableactuator = mask
+        self.model.opt.disableactuator = int(np.uint32(mask))
         mj.mj_forward(self.model, self.data)
         # Ensure at least one actuator remains enabled
         if self.enabled_actuator_mask().sum() == 0:
@@ -507,20 +509,20 @@ def _fd_linearization(
         for j in range(nv):
             # +eps
             _restore_state(data, snap)
-            qpos_p: np.ndarray = np.copy(base_qpos)  # replaced base_qpos.copy()
-            v: np.ndarray = np.zeros(nv)
-            v[j] = eps
-            mj.mj_integratePos(model, qpos_p, v, 1.0)
+            qpos_p: np.ndarray = np.copy(base_qpos)
+            pos_shift = np.zeros(nv)
+            pos_shift[j] = eps
+            mj.mj_integratePos(model, qpos_p, pos_shift, 1.0)
             data.qpos[:] = qpos_p
             data.qvel[:] = base_qvel
             mj.mj_forward(model, data)
             x_p = rollout_once()
             # -eps
             _restore_state(data, snap)
-            qpos_m: np.ndarray = np.copy(base_qpos)  # replaced base_qpos.copy()
-            v: np.ndarray = np.zeros(nv)
-            v[j] = -eps
-            mj.mj_integratePos(model, qpos_m, v, 1.0)
+            qpos_m: np.ndarray = np.copy(base_qpos)
+            neg_shift = np.zeros(nv)
+            neg_shift[j] = -eps
+            mj.mj_integratePos(model, qpos_m, neg_shift, 1.0)
             data.qpos[:] = qpos_m
             data.qvel[:] = base_qvel
             mj.mj_forward(model, data)
@@ -550,16 +552,16 @@ def _fd_linearization(
         for k in range(nu):
             # +eps
             _restore_state(data, snap)
-            u: np.ndarray = np.copy(base_ctrl)  # replaced base_ctrl.copy()
-            u[k] += eps
-            data.ctrl[:] = u
+            ctrl_step_pos = np.copy(base_ctrl)
+            ctrl_step_pos[k] += eps
+            data.ctrl[:] = ctrl_step_pos
             mj.mj_forward(model, data)
             x_p = rollout_once()
             # -eps
             _restore_state(data, snap)
-            u: np.ndarray = np.copy(base_ctrl)  # replaced base_ctrl.copy()
-            u[k] -= eps
-            data.ctrl[:] = u
+            ctrl_step_neg = np.copy(base_ctrl)
+            ctrl_step_neg[k] -= eps
+            data.ctrl[:] = ctrl_step_neg
             mj.mj_forward(model, data)
             x_m = rollout_once()
             B[:, k] = (x_p - x_m) / (2.0 * eps)
@@ -602,7 +604,7 @@ def _parse_jacobian_token(token: str) -> tuple[str, str | None]:
         return ("site", token.split(":", 1)[1])
     if token.startswith("body:"):
         return ("body", token.split(":", 1)[1])
-    if token.startswith("bodycom:]"):
+    if token.startswith("bodycom:"):
         return ("bodycom", token.split(":", 1)[1])
     if token.startswith("subtreecom:"):
         return ("subtreecom", token.split(":", 1)[1])
