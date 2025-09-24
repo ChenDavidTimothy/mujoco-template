@@ -91,20 +91,14 @@ __all__ = [
     "mj",
 ]
 
-try:
-    from importlib import metadata as _metadata
-except ImportError:  # pragma: no cover
-    _metadata = None  # type: ignore[assignment]
+from importlib import metadata as _metadata
 
-if _metadata is not None:
-    try:
-        __version__ = _metadata.version("mujoco-template")
-    except Exception:  # pragma: no cover
-        __version__ = "0.0.0"
-    else:
-        del _metadata
-else:  # pragma: no cover
+try:
+    __version__ = _metadata.version("mujoco-template")
+except Exception:  # pragma: no cover
     __version__ = "0.0.0"
+else:
+    del _metadata
 
 __all__.append("__version__")
 

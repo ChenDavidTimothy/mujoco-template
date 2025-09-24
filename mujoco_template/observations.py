@@ -38,7 +38,7 @@ class ObservationExtractor:
         self.subtree_ids = tuple(self._name2id(mj.mjtObj.mjOBJ_BODY, n) for n in spec.subtree_com)
 
     def _name2id(self, objtype: int, name: str) -> int:
-        idx = mj.mj_name2id(self.model, objtype, name)
+        idx = int(mj.mj_name2id(self.model, objtype, name))
         if idx < 0:
             raise NameLookupError(f"Name not found in model: {name}")
         return idx
