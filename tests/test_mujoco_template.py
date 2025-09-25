@@ -1,8 +1,12 @@
 
+from pathlib import Path
+from typing import Callable, TypeVar, cast
+
 import numpy as np
 import mujoco as mj
 import pytest
 from mujoco_template import (
+    Observation,
     ObservationSpec,
     ObservationExtractor,
     ModelHandle,
@@ -41,13 +45,16 @@ BASE_XML = """
 """
 
 
-@pytest.fixture
-def handle():
+_FixtureFunc = TypeVar("_FixtureFunc", bound=Callable[..., object])
+fixture = cast(Callable[[_FixtureFunc], _FixtureFunc], pytest.fixture)
+
+@fixture
+def handle() -> ModelHandle:
     handle = ModelHandle.from_xml_string(BASE_XML)
     handle.forward()
     return handle
 
-def test_observation_extractor_dict_and_array(handle):
+def test_observation_extractor_dict_and_array(handle: ModelHandle) -> None:
     subtree = ("torso",) if hasattr(mj, "mj_subtreeCoM") else ()
     spec_dict = ObservationSpec(
         include_qpos=True,
@@ -63,6 +70,7 @@ def test_observation_extractor_dict_and_array(handle):
     )
     extractor_dict = ObservationExtractor(handle.model, spec_dict)
     obs_dict = extractor_dict(handle.data)
+    assert isinstance(obs_dict, dict)
     expected_keys = {
         "qpos",
         "qvel",
@@ -101,6 +109,7 @@ def test_observation_extractor_dict_and_array(handle):
     )
     extractor_array = ObservationExtractor(handle.model, spec_array)
     obs_array = extractor_array(handle.data)
+    assert isinstance(obs_array, np.ndarray)
     expected_len = (
         handle.model.nq
         + handle.model.nv
@@ -113,7 +122,7 @@ def test_observation_extractor_dict_and_array(handle):
     )
     assert obs_array.shape == (expected_len,)
 
-def test_model_handle_actuator_group_mask():
+def test_model_handle_actuator_group_mask() -> None:
     handle = ModelHandle.from_xml_string(BASE_XML)
     handle.forward()
     handle.set_enabled_actuator_groups([0])
@@ -126,7 +135,7 @@ def test_model_handle_actuator_group_mask():
     mask_all = handle.enabled_actuator_mask()
     assert mask_all.tolist() == [True, True]
 
-def test_check_controller_compat_group_enforcement():
+def test_check_controller_compat_group_enforcement() -> None:
     handle = ModelHandle.from_xml_string(BASE_XML)
     handle.forward()
     handle.set_enabled_actuator_groups([1])
@@ -156,7 +165,7 @@ def test_check_controller_compat_group_enforcement():
     assert not report_bad.ok
     assert any("groups" in reason for reason in report_bad.reasons)
 
-def test_linearize_discrete_native_and_fd(handle):
+def test_linearize_discrete_native_and_fd(handle: ModelHandle) -> None:
     A_native, B_native = linearize_discrete(handle.model, handle.data, use_native=True)
     nv = handle.model.nv
     nx = 2 * nv
@@ -169,7 +178,7 @@ def test_linearize_discrete_native_and_fd(handle):
     assert B_fd.shape == (nx, handle.model.nu)
     assert np.all(np.isfinite(A_fd))
 
-def test_compute_requested_jacobians_returns_expected_blocks(handle):
+def test_compute_requested_jacobians_returns_expected_blocks(handle: ModelHandle) -> None:
     tokens = ["site:tip", "body:torso"]
     if hasattr(mj, "mj_jacBodyCom"):
         tokens.append("bodycom:torso")
@@ -188,39 +197,44 @@ def test_compute_requested_jacobians_returns_expected_blocks(handle):
     if "subtreecom:torso" in jacobians:
         assert jacobians["subtreecom:torso"]["jacp"].shape == (3, handle.model.nv)
 
-def test_env_step_invokes_controller_and_produces_precomputes():
+def test_env_step_invokes_controller_and_produces_precomputes() -> None:
     handle = ModelHandle.from_xml_string(BASE_XML)
     handle.forward()
 
     class CountingController:
-        def __init__(self):
+        def __init__(self) -> None:
             self.prepare_calls = 0
             self.call_times: list[float] = []
-            self.capabilities = ControllerCapabilities(
+            self.capabilities: ControllerCapabilities = ControllerCapabilities(
                 control_space=ControlSpace.TORQUE,
                 needs_linearization=True,
                 needs_jacobians=("site:tip",),
                 actuator_groups=(0,),
             )
 
-        def prepare(self, model, data):
+        def prepare(self, model: mj.MjModel, data: mj.MjData) -> None:
             self.prepare_calls += 1
 
-        def __call__(self, model, data, t):
+        def __call__(self, model: mj.MjModel, data: mj.MjData, t: float) -> None:
             self.call_times.append(float(t))
             data.ctrl[:] = 0.05
 
     controller = CountingController()
 
-    def reward_fn(model, data, obs):
+    def reward_fn(model: mj.MjModel, data: mj.MjData, obs: Observation) -> float:
+        assert isinstance(obs, dict)
         return float(np.asarray(obs["qpos"])[0])
 
-    def done_fn(model, data, obs):
+    def done_fn(model: mj.MjModel, data: mj.MjData, obs: Observation) -> bool:
+        assert isinstance(obs, dict)
         time_val = float(np.asarray(obs["time"])[0])
         return time_val >= 0.02
 
-    def info_fn(model, data, obs):
-        return {"extra_metric": float(data.time)}
+    def info_fn(
+        model: mj.MjModel, data: mj.MjData, obs: Observation
+    ) -> dict[str, str | float | int | np.ndarray]:
+        info: dict[str, str | float | int | np.ndarray] = {"extra_metric": float(data.time)}
+        return info
 
     env = Env(
         handle,
@@ -248,9 +262,18 @@ def test_env_step_invokes_controller_and_produces_precomputes():
     assert controller.call_times
     nv = env.model.nv
     nx = 2 * nv
-    assert "A" in res1.info and res1.info["A"].shape == (nx, nx)
-    assert "B" in res1.info and res1.info["B"].shape == (nx, env.model.nu)
-    assert "jacobians" in res1.info and "site:tip" in res1.info["jacobians"]
+    assert "A" in res1.info
+    A_matrix = res1.info["A"]
+    assert isinstance(A_matrix, np.ndarray)
+    assert A_matrix.shape == (nx, nx)
+    assert "B" in res1.info
+    B_matrix = res1.info["B"]
+    assert isinstance(B_matrix, np.ndarray)
+    assert B_matrix.shape == (nx, env.model.nu)
+    assert "jacobians" in res1.info
+    jacobians_info = res1.info["jacobians"]
+    assert isinstance(jacobians_info, dict)
+    assert "site:tip" in jacobians_info
     assert "compat_warnings" in res1.info
     assert res1.info["compat_warnings"] == env.compat_warnings
     assert "extra_metric" in res1.info
@@ -268,7 +291,7 @@ def test_env_step_invokes_controller_and_produces_precomputes():
     assert A_lin.shape == (nx, nx)
     assert B_lin.shape == (nx, env.model.nu)
 
-def test_steady_ctrl0_preserves_state(handle):
+def test_steady_ctrl0_preserves_state(handle: ModelHandle) -> None:
     model = handle.model
     data = handle.data
     data.qpos[:] = 0.1
@@ -282,7 +305,7 @@ def test_steady_ctrl0_preserves_state(handle):
     np.testing.assert_allclose(data.qpos, qpos_before)
     np.testing.assert_allclose(data.qvel, qvel_before)
 
-def test_quick_rollout_returns_observations_list(tmp_path):
+def test_quick_rollout_returns_observations_list(tmp_path: Path) -> None:
     xml_path = tmp_path / "model.xml"
     xml_path.write_text(BASE_XML)
     traj = quick_rollout(

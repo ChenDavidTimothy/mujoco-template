@@ -2,16 +2,22 @@ from __future__ import annotations
 
 import argparse
 import csv
+import importlib
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, IO
+from types import TracebackType
+from typing import Any, IO, Protocol, cast
 
 from .env import Env, StepResult
 from .exceptions import ConfigError, TemplateError
 
 StepHook = Callable[[StepResult], None]
+
+
+class _RowWriter(Protocol):
+    def writerow(self, row: Iterable[Any]) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -94,7 +100,7 @@ class TrajectoryLogger:
         self._columns = tuple(columns)
         self._formatter = formatter
         self._file: IO[str] | None = None
-        self._writer: csv.writer | None = None
+        self._writer: _RowWriter | None = None
 
     @property
     def columns(self) -> tuple[str, ...]:
@@ -112,7 +118,12 @@ class TrajectoryLogger:
             self._writer.writerow(self._columns)
         return self
 
-    def __exit__(self, exc_type, exc, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         self.close()
 
     def close(self) -> None:
@@ -150,7 +161,7 @@ def iterate_passive(
     duration: float | None = None,
     max_steps: int | None = None,
     hooks: StepHook | Iterable[StepHook] | None = None,
-):
+) -> Iterator[StepResult]:
     """Yield passive simulation steps, applying optional hooks per step."""
 
     if duration is not None and duration < 0:
@@ -204,15 +215,16 @@ def run_passive_viewer(
         raise ConfigError("max_steps must be >= 1 when provided.")
 
     try:
-        import mujoco.viewer as mj_viewer
+        mj_viewer_module = importlib.import_module("mujoco.viewer")
     except Exception as exc:  # pragma: no cover - viewer availability is platform specific
         raise TemplateError(f"MuJoCo viewer is unavailable: {exc}") from exc
 
+    viewer_module = cast(Any, mj_viewer_module)
     normalized_hooks = _normalize_hooks(hooks)
     timestep = float(env.model.opt.timestep)
     steps = 0
 
-    with mj_viewer.launch_passive(env.model, env.data) as viewer:
+    with viewer_module.launch_passive(env.model, env.data) as viewer:
         while viewer.is_running():
             step_start = time.perf_counter()
             result = env.step()

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterator, Sequence
+from types import TracebackType
+from typing import Any, Callable, Iterator, Sequence, cast
 
 import mujoco as mj
 import numpy as np
@@ -192,7 +193,12 @@ class StateControlRecorder:
         self._logger.__enter__()
         return self
 
-    def __exit__(self, exc_type, exc, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         self._logger.__exit__(exc_type, exc, exc_tb)
 
     def close(self) -> None:
@@ -218,20 +224,25 @@ class StateControlRecorder:
             row.append("")
 
         for probe in self._probes:
-            value = probe.extractor(self._env, result)
-            if isinstance(value, np.ndarray):
-                if value.size != 1:
+            raw_value = probe.extractor(self._env, result)
+            value_obj = cast(object, raw_value)
+            coerced: object
+            if isinstance(value_obj, np.ndarray):
+                array_value = cast(np.ndarray, value_obj)
+                if array_value.size != 1:
                     raise ConfigError(
-                        f"Probe '{probe.name}' returned array with {value.size} elements; expected scalar."
+                        f"Probe '{probe.name}' returned array with {array_value.size} elements; expected scalar."
                     )
-                value = float(value.item())
-            elif isinstance(value, (list, tuple)):
+                coerced = float(array_value.item())
+            elif isinstance(value_obj, (list, tuple)):
                 raise ConfigError(
                     f"Probe '{probe.name}' returned a non-scalar sequence; expected scalar-compatible value."
                 )
-            elif value is None:
-                value = ""
-            row.append(value)
+            elif raw_value is None:
+                coerced = ""
+            else:
+                coerced = raw_value
+            row.append(coerced)
 
         return tuple(row)
 
