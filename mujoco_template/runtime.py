@@ -309,7 +309,7 @@ class PassiveRunHarness:
                 steps = run_passive_viewer(
                     env,
                     duration=resolved.viewer.duration_seconds,
-                    max_steps=resolved.simulation.max_steps,
+                    max_steps=None,
                     hooks=hooks,
                 )
             elif video_encoder is not None:
