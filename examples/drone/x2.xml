@@ -26,11 +26,17 @@
       <site group="5"/>
       <!-- Counter-clockwise rotors generate a positive (body +z) reaction torque. -->
       <default class="rotor_ccw">
-        <motor gear="0 0 1 0 0 0.0201"/>
+        <!--
+          Increase the aerodynamic reaction torque so yaw inputs have realistic
+          authority.  The coefficient maps unit thrust (newtons) to the
+          resulting yaw moment (newton-metres) and is tuned to match a
+          0.11 m rotor arm.
+        -->
+        <motor gear="0 0 1 0 0 0.11"/>
       </default>
       <!-- Clockwise rotors produce an equal and opposite yaw torque. -->
       <default class="rotor_cw">
-        <motor gear="0 0 1 0 0 -0.0201"/>
+        <motor gear="0 0 1 0 0 -0.11"/>
       </default>
     </default>
   </default>
