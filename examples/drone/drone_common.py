@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Sequence
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 import mujoco_template as mt
 
@@ -21,6 +22,25 @@ def make_env(*, obs_spec: mt.ObservationSpec, controller: mt.Controller | None =
 
     handle = load_model_handle()
     return mt.Env(handle, obs_spec=obs_spec, controller=controller, **env_kwargs)
+
+
+def quat_wxyz_from_body_euler(
+    *, roll_deg: float = 0.0, pitch_deg: float = 0.0, yaw_deg: float = 0.0
+) -> tuple[float, float, float, float]:
+    """Return a body-frame orientation specified by XYZ Euler angles in degrees.
+
+    The drone model defines its body axes with ``x`` pointing forward, ``y`` to the
+    left, and ``z`` upward.  This helper converts intuitive roll/pitch/yaw degrees
+    about those axes into the unit quaternion ordering expected by the controller
+    and MuJoCo (``w, x, y, z``).
+    """
+
+    rotation = Rotation.from_euler(
+        "xyz", [roll_deg, pitch_deg, yaw_deg], degrees=True
+    )
+    # SciPy returns quaternions in (x, y, z, w) order; reorder to (w, x, y, z).
+    x, y, z, w = rotation.as_quat()
+    return (float(w), float(x), float(y), float(z))
 
 
 def require_site_id(model: mt.mj.MjModel, name: str) -> int:
@@ -61,6 +81,7 @@ __all__ = [
     "DRONE_XML",
     "load_model_handle",
     "make_env",
+    "quat_wxyz_from_body_euler",
     "make_navigation_probes",
     "require_site_id",
 ]

@@ -3,6 +3,8 @@ from types import SimpleNamespace
 
 import mujoco_template as mt
 
+from drone_common import quat_wxyz_from_body_euler
+
 RUN_SETTINGS = mt.PassiveRunSettings(
     simulation=mt.SimulationSettings(max_steps=4000, duration_seconds=8.0, sample_stride=80),
     video=mt.VideoSettings(
@@ -42,9 +44,9 @@ RUN_SETTINGS = mt.PassiveRunSettings(
 
 TRAJECTORY = SimpleNamespace(
     start_position_m=(0.0, 0.0, 0.3),
-    start_orientation_wxyz=(1.0, 0.0, 0.0, 0.0),
+    start_orientation_wxyz=quat_wxyz_from_body_euler(),
     goal_position_m=(3.0, 2.0, 1.6),
-    goal_orientation_wxyz=(1.0, 0.0, 0.0, 0.0),
+    goal_orientation_wxyz=quat_wxyz_from_body_euler(yaw_deg=90.0),
 )
 
 CONTROLLER = SimpleNamespace(
