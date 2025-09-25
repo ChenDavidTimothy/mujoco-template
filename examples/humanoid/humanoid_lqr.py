@@ -33,6 +33,9 @@ class HumanoidLQRController:
         self._ctrl_buffer: np.ndarray | None = None
         self._ctrl_low: np.ndarray | None = None
         self._ctrl_high: np.ndarray | None = None
+        self._ctrl_std: np.ndarray | None = None
+        self._perturbations: np.ndarray | None = None
+        self._perturb_index: int = 0
         self._nu: int = 0
         self._nv: int = 0
 
@@ -145,6 +148,8 @@ class HumanoidLQRController:
             self._ctrl_low = None
             self._ctrl_high = None
 
+        self._initialize_perturbations(model, cfg)
+
         self._prepared = True
 
     def __call__(self, model: mt.mj.MjModel, data: mt.mj.MjData, _t: float) -> None:
@@ -160,10 +165,61 @@ class HumanoidLQRController:
         self._ctrl_delta[:] = self._K @ self._dx_scratch
         self._ctrl_buffer[:] = self._ctrl0 - self._ctrl_delta
 
+        if self._ctrl_std is not None and self._perturbations is not None:
+            nsteps = self._perturbations.shape[0]
+            if nsteps > 0:
+                idx = self._perturb_index % nsteps
+                self._ctrl_buffer += self._ctrl_std * self._perturbations[idx]
+                self._perturb_index = idx + 1
+
         if self._ctrl_low is not None and self._ctrl_high is not None:
             np.clip(self._ctrl_buffer, self._ctrl_low, self._ctrl_high, out=self._ctrl_buffer)
 
         data.ctrl[:] = self._ctrl_buffer
+
+    def _initialize_perturbations(self, model: mt.mj.MjModel, cfg: ControllerConfig) -> None:
+        self._ctrl_std = None
+        self._perturbations = None
+        self._perturb_index = 0
+        if not cfg.perturbations_enabled:
+            return
+        if self._balance_dofs is None:
+            raise mt.TemplateError('Balance DOFs unavailable before perturbation setup.')
+        ctrl_std = np.full(self._nu, cfg.perturb_other_std, dtype=float)
+        dof_indices = np.full(self._nu, -1, dtype=int)
+        trnid_attr = getattr(model, 'actuator_trnid', None)
+        if trnid_attr is None:
+            raise mt.TemplateError('Model missing actuator_trnid for perturbation setup.')
+        actuator_trnid = np.asarray(trnid_attr, dtype=int)
+        if actuator_trnid.ndim == 1:
+            actuator_trnid = actuator_trnid.reshape(self._nu, -1)
+        joint_dofadr = np.asarray(model.jnt_dofadr, dtype=int)
+        for act_id in range(self._nu):
+            joint_id = int(actuator_trnid[act_id, 0]) if actuator_trnid.shape[1] >= 1 else -1
+            if joint_id < 0 or joint_id >= joint_dofadr.size:
+                continue
+            dof_indices[act_id] = int(joint_dofadr[joint_id])
+        is_balance = np.isin(dof_indices, self._balance_dofs)
+        ctrl_std[is_balance] = cfg.perturb_balance_std
+        duration = float(cfg.perturb_duration_s)
+        if duration <= 0.0:
+            raise mt.ConfigError('perturb_duration_s must be > 0 when perturbations are enabled.')
+        timestep = float(model.opt.timestep)
+        if timestep <= 0.0:
+            raise mt.TemplateError('Model timestep must be > 0 for perturbation generation.')
+        nsteps = max(1, int(np.ceil(duration / timestep)))
+        rng = np.random.default_rng(cfg.perturb_seed)
+        perturb = rng.standard_normal((nsteps, self._nu))
+        width = max(1, int(np.ceil(nsteps * cfg.perturb_ctrl_rate_s / duration)))
+        kernel = np.exp(-0.5 * np.linspace(-3.0, 3.0, width) ** 2)
+        norm = float(np.linalg.norm(kernel))
+        if norm > 0.0:
+            kernel /= norm
+        for idx in range(self._nu):
+            perturb[:, idx] = np.convolve(perturb[:, idx], kernel, mode='same')
+        self._ctrl_std = ctrl_std
+        self._perturbations = perturb
+        self._perturb_index = 0
 
     @property
     def qpos_equilibrium(self) -> np.ndarray:

@@ -17,6 +17,12 @@ class ControllerConfig:
     balance_joint_cost: float = 3.0
     other_joint_cost: float = 0.3
     clip_controls: bool = True
+    perturbations_enabled: bool = True
+    perturb_seed: int | None = 1
+    perturb_duration_s: float = 6.0
+    perturb_ctrl_rate_s: float = 0.8
+    perturb_balance_std: float = 0.01
+    perturb_other_std: float = 0.08
 
 
 def _default_run_settings() -> mt.PassiveRunSettings:
