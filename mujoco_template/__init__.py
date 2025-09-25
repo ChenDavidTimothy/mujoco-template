@@ -23,6 +23,7 @@ from .rollout import quick_rollout
 from .setpoints import steady_ctrl0
 from .video import VideoEncoderSettings, VideoExporter, RenderHook, CameraUpdater
 from .runtime import (
+    AdaptiveCameraSettings,
     LoggingSettings,
     PassiveRunCLIOptions,
     PassiveRunHarness,
@@ -104,6 +105,7 @@ __all__ = [
     "TrajectoryLogger",
     "SimulationSettings",
     "VideoSettings",
+    "AdaptiveCameraSettings",
     "LoggingSettings",
     "ViewerSettings",
     "PassiveRunSettings",
