@@ -16,6 +16,25 @@ RUN_SETTINGS = mt.PassiveRunSettings(
         tune=None,
         faststart=True,
         capture_initial_frame=True,
+        adaptive_camera=mt.AdaptiveCameraSettings(
+            enabled=True,
+            zoom_policy="distance",
+            azimuth=120.0,
+            elevation=-15.0,
+            distance=4.0,
+            lookat=(0.0, 0.0, 1.0),
+            min_distance=4.0,
+            max_distance=14.0,
+            safety_margin=0.2,
+            widen_threshold=0.82,
+            tighten_threshold=0.62,
+            smoothing_time_constant=0.05,
+            recenter_axis="x",
+            recenter_time_constant=1.0,
+            points_of_interest=(
+                "body:x2",
+            ),
+        ),
     ),
     viewer=mt.ViewerSettings(enabled=False, duration_seconds=None),
     logging=mt.LoggingSettings(enabled=False, path=Path("drone_lqr.csv"), store_rows=True),
@@ -24,7 +43,7 @@ RUN_SETTINGS = mt.PassiveRunSettings(
 TRAJECTORY = SimpleNamespace(
     start_position_m=(0.0, 0.0, 0.3),
     start_orientation_wxyz=(1.0, 0.0, 0.0, 0.0),
-    goal_position_m=(1.0, 0.0, 0.6),
+    goal_position_m=(3.0, 2.0, 1.6),
     goal_orientation_wxyz=(1.0, 0.0, 0.0, 0.0),
 )
 
