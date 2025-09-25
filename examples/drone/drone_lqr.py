@@ -4,6 +4,8 @@ from typing import Iterable
 import numpy as np
 import scipy.linalg
 
+from numpy.linalg import LinAlgError
+
 import mujoco_template as mt
 
 from drone_common import make_env, make_navigation_probes
@@ -92,8 +94,7 @@ class DroneLQRController:
         Q = self._build_state_cost(cfg)
         R = self._build_ctrl_cost(cfg)
 
-        P = scipy.linalg.solve_discrete_are(A, B, Q, R)
-        K = np.linalg.solve(R + B.T @ P @ B, B.T @ P @ A)
+        P, K = self._solve_lqr_gains(A, B, Q, R)
 
         self._qpos_goal = qpos_goal
         self._qpos_start = qpos_start
@@ -197,6 +198,46 @@ class DroneLQRController:
         if weight <= 0.0:
             raise mt.ConfigError("control_weight must be positive.")
         return weight * np.eye(self._nu)
+
+    def _solve_lqr_gains(self, A: np.ndarray, B: np.ndarray, Q: np.ndarray, R: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Solve the discrete-time algebraic Riccati equation with fallbacks.
+
+        SciPy's :func:`solve_discrete_are` occasionally raises ``LinAlgError`` when
+        the associated symplectic pencil has eigenvalues close to the unit
+        circle.  This happens for the drone linearization due to near-marginally
+        stable dynamics around hover.  To make the example robust across
+        platforms we progressively regularize the state and control penalties and
+        retry the solver.  The additional penalty is tiny and has a negligible
+        effect on the resulting controller but nudges the eigenvalues away from
+        the problematic regime.
+        """
+
+        try:
+            P = scipy.linalg.solve_discrete_are(A, B, Q, R)
+            K = np.linalg.solve(R + B.T @ P @ B, B.T @ P @ A)
+            return P, K
+        except LinAlgError:
+            pass
+
+        eye_Q = np.eye(Q.shape[0])
+        eye_R = np.eye(R.shape[0])
+        last_error: LinAlgError | None = None
+
+        # Retry with gradually increasing diagonal regularization.
+        for reg in (1e-12, 1e-10, 1e-8, 1e-6, 1e-4):
+            try:
+                Q_reg = Q + reg * eye_Q
+                R_reg = R + reg * eye_R
+                P = scipy.linalg.solve_discrete_are(A, B, Q_reg, R_reg)
+                K = np.linalg.solve(R_reg + B.T @ P @ B, B.T @ P @ A)
+                return P, K
+            except LinAlgError as err:  # pragma: no cover - rare failure path
+                last_error = err
+
+        raise mt.TemplateError(
+            "Unable to compute discrete LQR gains – try increasing the cost weights or"
+            " adjusting the linearization epsilon."
+        ) from last_error
 
     @property
     def qpos_goal(self) -> np.ndarray:
