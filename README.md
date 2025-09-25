@@ -90,6 +90,7 @@ When a controller declares `needs_linearization` or `needs_jacobians`, `Env.step
 Self-contained MJCF examples live under `examples/`:
 - `examples/pendulum` - passive pendulum demos.
 - `examples/cartpole` - cart-pole models and scripts.
+- `examples/humanoid` - LQR balancing controller for the MuJoCo humanoid.
 
 Each example directory contains the MJCF file plus convenience scripts that showcase how to assemble controllers, observation specs, and runtime utilities. Runtime defaults now live in dedicated config modules (for example `examples/cartpole/cartpole_config.py`). The scripts only accept the activation flags `--viewer`, `--video`, and `--logs`; all other parameters are configured in the companion config file so the source of truth is explicit.
 
