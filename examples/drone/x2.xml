@@ -6,7 +6,13 @@
   <default>
     <default class="x2">
       <geom mass="0"/>
-      <motor ctrlrange="0 13"/>
+      <!--
+        Configure the generic rotor actuation model.  Each control input produces
+        an upward force applied at the rotor hub along the body's ``+z`` axis.
+        Individual rotor defaults defined below override the final ``gear``
+        element to include the aerodynamic reaction torque that causes yaw.
+      -->
+      <motor ctrlrange="0 13" gear="0 0 1 0 0 0"/>
       <mesh scale="0.01 0.01 0.01"/>
       <default class="visual">
         <geom group="2" type="mesh" contype="0" conaffinity="0"/>
@@ -18,6 +24,14 @@
         </default>
       </default>
       <site group="5"/>
+      <!-- Counter-clockwise rotors generate a positive (body +z) reaction torque. -->
+      <default class="rotor_ccw">
+        <motor gear="0 0 1 0 0 0.0201"/>
+      </default>
+      <!-- Clockwise rotors produce an equal and opposite yaw torque. -->
+      <default class="rotor_cw">
+        <motor gear="0 0 1 0 0 -0.0201"/>
+      </default>
     </default>
   </default>
 
@@ -53,10 +67,10 @@
   </worldbody>
 
   <actuator>
-    <motor class="x2" name="thrust1" site="thrust1" gear="0 0 1 0 0 -.0201"/>
-    <motor class="x2" name="thrust2" site="thrust2" gear="0 0 1 0 0  .0201"/>
-    <motor class="x2" name="thrust3" site="thrust3" gear="0 0 1 0 0  .0201"/>
-    <motor class="x2" name="thrust4" site="thrust4" gear="0 0 1 0 0 -.0201"/>
+    <motor class="rotor_cw" name="thrust1" site="thrust1"/>
+    <motor class="rotor_ccw" name="thrust2" site="thrust2"/>
+    <motor class="rotor_ccw" name="thrust3" site="thrust3"/>
+    <motor class="rotor_cw" name="thrust4" site="thrust4"/>
   </actuator>
 
   <sensor>
