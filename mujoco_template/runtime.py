@@ -5,14 +5,14 @@ import csv
 import importlib
 import time
 from collections.abc import Callable, Iterable, Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import TracebackType
-from typing import Any, IO, Protocol, cast
+from typing import Any, IO, Protocol, TYPE_CHECKING, cast
 
 from .env import Env, StepResult
 from .exceptions import ConfigError, TemplateError
-from .video import VideoExporter
+from .video import VideoEncoderSettings, VideoExporter
 
 StepHook = Callable[[StepResult], None]
 
@@ -87,6 +87,261 @@ def parse_passive_run_cli(
         add_passive_run_arguments(local_parser)
     namespace = local_parser.parse_args(args=args)
     return _options_from_namespace(namespace)
+
+
+
+if TYPE_CHECKING:
+    from .logging import DataProbe, StateControlRecorder
+
+
+@dataclass(frozen=True)
+class SimulationSettings:
+    """Control maximum steps, duration, and sampling cadence for passive runs."""
+
+    max_steps: int = 2000
+    duration_seconds: float | None = None
+    sample_stride: int = 50
+
+    def __post_init__(self) -> None:
+        if self.max_steps < 1:
+            raise ConfigError("SimulationSettings.max_steps must be >= 1")
+        if self.duration_seconds is not None and self.duration_seconds <= 0:
+            raise ConfigError(
+                "SimulationSettings.duration_seconds must be > 0 when provided"
+            )
+        if self.sample_stride < 1:
+            raise ConfigError("SimulationSettings.sample_stride must be >= 1")
+
+
+@dataclass(frozen=True)
+class VideoSettings:
+    """Configuration for optional offline video export."""
+
+    enabled: bool = False
+    path: Path = field(default_factory=lambda: Path("trajectory.mp4"))
+    fps: float = 60.0
+    width: int = 1280
+    height: int = 720
+    crf: int = 18
+    preset: str = "medium"
+    tune: str | None = None
+    faststart: bool = True
+    capture_initial_frame: bool = True
+
+    def __post_init__(self) -> None:
+        if self.fps <= 0:
+            raise ConfigError("VideoSettings.fps must be > 0")
+        if self.width <= 0 or self.height <= 0:
+            raise ConfigError("VideoSettings width and height must be > 0")
+        if self.crf < 0:
+            raise ConfigError("VideoSettings.crf must be >= 0")
+
+    def make_encoder_settings(self) -> VideoEncoderSettings:
+        return VideoEncoderSettings(
+            path=self.path,
+            fps=self.fps,
+            width=self.width,
+            height=self.height,
+            crf=self.crf,
+            preset=self.preset,
+            tune=self.tune,
+            faststart=self.faststart,
+            capture_initial_frame=self.capture_initial_frame,
+        )
+
+
+@dataclass(frozen=True)
+class LoggingSettings:
+    """Configuration for CSV trajectory logging via StateControlRecorder."""
+
+    enabled: bool = False
+    path: Path = field(default_factory=lambda: Path("trajectory.csv"))
+    store_rows: bool = True
+
+    def __post_init__(self) -> None:
+        if self.enabled and not str(self.path):
+            raise ConfigError("LoggingSettings.path must be provided when logging is enabled")
+
+
+@dataclass(frozen=True)
+class ViewerSettings:
+    """Configuration for interactive viewer sessions."""
+
+    enabled: bool = False
+    duration_seconds: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.duration_seconds is not None and self.duration_seconds <= 0:
+            raise ConfigError("ViewerSettings.duration_seconds must be > 0 when provided")
+
+
+@dataclass(frozen=True)
+class PassiveRunSettings:
+    """Complete passive-run configuration bundle."""
+
+    simulation: SimulationSettings = field(default_factory=SimulationSettings)
+    video: VideoSettings = field(default_factory=VideoSettings)
+    viewer: ViewerSettings = field(default_factory=ViewerSettings)
+    logging: LoggingSettings = field(default_factory=LoggingSettings)
+
+
+def _resolved_settings(
+    settings: PassiveRunSettings,
+    options: PassiveRunCLIOptions | None,
+) -> PassiveRunSettings:
+    if options is None:
+        return settings
+
+    viewer = replace(settings.viewer, enabled=settings.viewer.enabled or options.viewer)
+    video = replace(settings.video, enabled=settings.video.enabled or options.video)
+    logging = replace(settings.logging, enabled=settings.logging.enabled or options.logs)
+    simulation = settings.simulation
+
+    if options.duration is not None:
+        viewer = replace(viewer, duration_seconds=options.duration)
+        simulation = replace(simulation, duration_seconds=options.duration)
+
+    return PassiveRunSettings(simulation=simulation, video=video, viewer=viewer, logging=logging)
+
+
+@dataclass(frozen=True)
+class PassiveRunResult:
+    """Outcome of a passive-run harness execution."""
+
+    env: Env
+    settings: PassiveRunSettings
+    steps: int
+    recorder: "StateControlRecorder"
+    log_path: Path | None
+    video_path: Path | None
+
+
+class PassiveRunHarness:
+    """Reusable harness that wires common passive-run helpers together."""
+
+    def __init__(
+        self,
+        env_factory: Callable[[], Env],
+        *,
+        description: str | None = None,
+        seed_fn: Callable[[Env], None] | None = None,
+        probes: Sequence["DataProbe"] | Callable[[Env], Sequence["DataProbe"]] = (),
+        hooks_factory: Callable[[Env], Iterable[StepHook]] | None = None,
+        store_rows: bool | None = None,
+        start_message: str | None = None,
+        auto_reset: bool = False,
+    ) -> None:
+        self._env_factory = env_factory
+        self._description = description
+        self._seed_fn = seed_fn
+        self._probes_spec = probes
+        self._hooks_factory = hooks_factory
+        self._store_rows_override = store_rows
+        self._start_message = start_message
+        self._auto_reset = bool(auto_reset)
+
+    @property
+    def description(self) -> str | None:
+        return self._description
+
+    def run_from_cli(
+        self,
+        settings: PassiveRunSettings,
+        *,
+        args: Sequence[str] | None = None,
+        parser: argparse.ArgumentParser | None = None,
+    ) -> PassiveRunResult:
+        options = parse_passive_run_cli(self._description, args=args, parser=parser)
+        return self.run(settings, options=options)
+
+    def run(
+        self,
+        settings: PassiveRunSettings,
+        *,
+        options: PassiveRunCLIOptions | None = None,
+    ) -> PassiveRunResult:
+        from .logging import StateControlRecorder
+
+        resolved = _resolved_settings(settings, options)
+        env = self._env_factory()
+
+        if self._auto_reset:
+            env.reset()
+        if self._seed_fn is not None:
+            self._seed_fn(env)
+
+        probes_spec = self._probes_spec
+        if callable(probes_spec):  # type: ignore[misc]
+            resolved_probes = probes_spec(env)
+        else:
+            resolved_probes = probes_spec
+        probes_tuple = tuple(resolved_probes) if resolved_probes is not None else ()
+
+        log_path = resolved.logging.path if resolved.logging.enabled else None
+        store_rows = self._store_rows_override
+        if store_rows is None:
+            store_rows = resolved.logging.store_rows if resolved.logging.enabled else True
+        store_rows_flag = bool(store_rows)
+
+        recorder = StateControlRecorder(
+            env,
+            log_path=log_path,
+            store_rows=store_rows_flag,
+            probes=probes_tuple,
+        )
+
+        hooks: list[StepHook] = []
+        if self._hooks_factory is not None:
+            extra_hooks = _normalize_hooks(self._hooks_factory(env))
+            hooks.extend(extra_hooks)
+        hooks.append(recorder)
+
+        video_path: Path | None = None
+        video_encoder: VideoEncoderSettings | None = (
+            resolved.video.make_encoder_settings() if resolved.video.enabled else None
+        )
+
+        if self._start_message is not None:
+            print(self._start_message)
+
+        with recorder:
+            if resolved.viewer.enabled:
+                steps = run_passive_viewer(
+                    env,
+                    duration=resolved.viewer.duration_seconds,
+                    max_steps=resolved.simulation.max_steps,
+                    hooks=hooks,
+                )
+            elif video_encoder is not None:
+                exporter = VideoExporter(env, video_encoder)
+                steps = run_passive_video(
+                    env,
+                    exporter,
+                    duration=resolved.simulation.duration_seconds,
+                    max_steps=resolved.simulation.max_steps,
+                    hooks=hooks,
+                )
+                video_path = video_encoder.path
+                print(f"Exported {steps} steps to {video_path}")
+            else:
+                steps = run_passive_headless(
+                    env,
+                    duration=resolved.simulation.duration_seconds,
+                    max_steps=resolved.simulation.max_steps,
+                    hooks=hooks,
+                )
+
+        if log_path is not None:
+            print(f"Logged trajectory to {log_path}")
+
+        return PassiveRunResult(
+            env=env,
+            settings=resolved,
+            steps=steps,
+            recorder=recorder,
+            log_path=log_path,
+            video_path=video_path,
+        )
 
 
 class TrajectoryLogger:
@@ -281,6 +536,13 @@ def run_passive_video(
 
 
 __all__ = [
+    "SimulationSettings",
+    "VideoSettings",
+    "LoggingSettings",
+    "ViewerSettings",
+    "PassiveRunSettings",
+    "PassiveRunResult",
+    "PassiveRunHarness",
     "StepHook",
     "TrajectoryLogger",
     "PassiveRunCLIOptions",

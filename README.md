@@ -35,6 +35,7 @@ result = env.step()
 print(f"qpos after one step: {result.obs['qpos']}")
 ```
 
+
 Prefer a shortcut rollout? Use `quick_rollout`:
 ```python
 from mujoco_template import ObservationSpec, ZeroController, quick_rollout
@@ -46,6 +47,26 @@ trajectory = quick_rollout(
     obs_spec=ObservationSpec(include_sensordata=False),
 )
 print(f"Collected {len(trajectory)} observations")
+```
+
+Need zero-boilerplate runtime tooling? Configure once and reuse `PassiveRunHarness`:
+```python
+import mujoco_template as mt
+
+harness = mt.PassiveRunHarness(
+    build_env,  # returns an mt.Env
+    description="My MuJoCo experiment",
+    seed_fn=seed_env,  # optional callable to set initial state
+    probes=make_probes,  # optional callable returning DataProbe instances
+)
+
+settings = mt.PassiveRunSettings(
+    simulation=mt.SimulationSettings(max_steps=2_000),
+    logging=mt.LoggingSettings(enabled=True, path="trajectory.csv"),
+)
+
+result = harness.run_from_cli(settings)
+print(f"Simulation executed {result.steps} steps")
 ```
 
 Run the built-in smoke-test CLI:

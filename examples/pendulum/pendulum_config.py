@@ -3,31 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
-@dataclass(frozen=True)
-class ViewerConfig:
-    enabled: bool = False
-    duration_seconds: float | None = None
-
-
-@dataclass(frozen=True)
-class VideoConfig:
-    enabled: bool = True
-    path: Path = Path("pendulum.mp4")
-    fps: float = 60.0
-    width: int = 1280
-    height: int = 720
-    crf: int = 18
-    preset: str = "medium"
-    tune: str | None = None
-    faststart: bool = True
-    capture_initial_frame: bool = True
-
-
-@dataclass(frozen=True)
-class LoggingConfig:
-    enabled: bool = False
-    path: Path = Path("pendulum.csv")
+import mujoco_template as mt
 
 
 @dataclass(frozen=True)
@@ -43,21 +19,31 @@ class InitialStateConfig:
     velocity_deg: float = 0.0
 
 
-@dataclass(frozen=True)
-class SimulationConfig:
-    headless_max_steps: int = 400
-    headless_duration_seconds: float | None = None
-    sample_stride: int = 80
+def _default_run_settings() -> mt.PassiveRunSettings:
+    return mt.PassiveRunSettings(
+        simulation=mt.SimulationSettings(max_steps=400, duration_seconds=None, sample_stride=80),
+        video=mt.VideoSettings(
+            enabled=True,
+            path=Path("pendulum.mp4"),
+            fps=60.0,
+            width=1280,
+            height=720,
+            crf=18,
+            preset="medium",
+            tune=None,
+            faststart=True,
+            capture_initial_frame=True,
+        ),
+        viewer=mt.ViewerSettings(enabled=False, duration_seconds=None),
+        logging=mt.LoggingSettings(enabled=False, path=Path("pendulum.csv"), store_rows=True),
+    )
 
 
 @dataclass(frozen=True)
 class PendulumConfig:
-    simulation: SimulationConfig = field(default_factory=SimulationConfig)
+    run: mt.PassiveRunSettings = field(default_factory=_default_run_settings)
     initial_state: InitialStateConfig = field(default_factory=InitialStateConfig)
     controller: ControllerConfig = field(default_factory=ControllerConfig)
-    viewer: ViewerConfig = field(default_factory=ViewerConfig)
-    video: VideoConfig = field(default_factory=VideoConfig)
-    logging: LoggingConfig = field(default_factory=LoggingConfig)
 
 
 CONFIG = PendulumConfig()
@@ -67,9 +53,5 @@ __all__ = [
     "CONFIG",
     "ControllerConfig",
     "InitialStateConfig",
-    "LoggingConfig",
     "PendulumConfig",
-    "SimulationConfig",
-    "VideoConfig",
-    "ViewerConfig",
 ]
