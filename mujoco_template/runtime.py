@@ -12,7 +12,7 @@ from typing import Any, IO, Protocol, cast
 
 from .env import Env, StepResult
 from .exceptions import ConfigError, TemplateError
-from .video import VideoEncoderSettings, VideoExporter
+from .video import VideoExporter
 
 StepHook = Callable[[StepResult], None]
 
@@ -24,140 +24,35 @@ class _RowWriter(Protocol):
 @dataclass(frozen=True)
 class PassiveRunCLIOptions:
     viewer: bool
-    duration: float | None
-    log_path: Path | None
-    video: VideoEncoderSettings | None
+    video: bool
+    logs: bool
 
 
 def add_passive_run_arguments(parser: argparse.ArgumentParser) -> None:
-    """Attach common passive-run CLI toggles to an argument parser."""
+    """Attach minimal passive-run CLI toggles to an argument parser."""
 
     parser.add_argument(
         "--viewer",
         action="store_true",
-        help="Launch the interactive MuJoCo viewer instead of running headless.",
+        help="Launch the interactive viewer using the configuration defaults.",
     )
     parser.add_argument(
-        "--log-path",
-        type=Path,
-        default=None,
-        help="Optional CSV path for writing trajectory samples.",
+        "--video",
+        action="store_true",
+        help="Enable video export using the configuration defaults.",
     )
     parser.add_argument(
-        "--duration",
-        type=float,
-        default=0.0,
-        help=(
-            "Simulation duration in seconds. Use <=0 for unlimited headless runs or "
-            "until the viewer window is closed."
-        ),
-    )
-    parser.add_argument(
-        "--video-path",
-        type=Path,
-        default=None,
-        help=(
-            "Export an MP4 recording to this path using the template video exporter. "
-            "Omit to disable recording."
-        ),
-    )
-    parser.add_argument(
-        "--video-fps",
-        type=float,
-        default=60.0,
-        help="Video frame rate (Hz) controlling playback speed.",
-    )
-    parser.add_argument(
-        "--video-width",
-        type=int,
-        default=1280,
-        help="Video width in pixels.",
-    )
-    parser.add_argument(
-        "--video-height",
-        type=int,
-        default=720,
-        help="Video height in pixels.",
-    )
-    parser.add_argument(
-        "--video-crf",
-        type=int,
-        default=18,
-        help="x264 CRF quality target (lower values increase quality).",
-    )
-    parser.add_argument(
-        "--video-preset",
-        type=str,
-        default="medium",
-        help="FFmpeg preset governing encode speed vs quality.",
-    )
-    parser.add_argument(
-        "--video-tune",
-        type=str,
-        default=None,
-        help="Optional FFmpeg tune profile (e.g. 'animation').",
-    )
-    parser.add_argument(
-        "--video-faststart",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Enable MP4 faststart for web playback (default: enabled).",
-    )
-    parser.add_argument(
-        "--video-initial-frame",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Capture the initial state as the first frame (default: enabled).",
+        "--logs",
+        action="store_true",
+        help="Enable trajectory logging using the configuration defaults.",
     )
 
 
 def _options_from_namespace(namespace: argparse.Namespace) -> PassiveRunCLIOptions:
-    duration_raw = getattr(namespace, "duration", 0.0)
-    duration: float | None
-    if duration_raw is None or duration_raw <= 0:
-        duration = None
-    else:
-        duration = float(duration_raw)
-
-    log_path = getattr(namespace, "log_path", None)
-    if log_path is not None and not isinstance(log_path, Path):
-        log_path = Path(log_path)
-
-    viewer = bool(getattr(namespace, "viewer", False))
-
-    video_path = getattr(namespace, "video_path", None)
-    video_settings: VideoEncoderSettings | None = None
-    if video_path is not None:
-        if not isinstance(video_path, Path):
-            video_path = Path(video_path)
-        try:
-            fps = float(getattr(namespace, "video_fps", 60.0))
-            width = int(getattr(namespace, "video_width", 1280))
-            height = int(getattr(namespace, "video_height", 720))
-            crf = int(getattr(namespace, "video_crf", 18))
-            preset = str(getattr(namespace, "video_preset", "medium"))
-            tune = getattr(namespace, "video_tune", None)
-            faststart = bool(getattr(namespace, "video_faststart", True))
-            capture_initial = bool(getattr(namespace, "video_initial_frame", True))
-            video_settings = VideoEncoderSettings(
-                path=video_path,
-                fps=fps,
-                width=width,
-                height=height,
-                crf=crf,
-                preset=preset,
-                tune=tune,
-                faststart=faststart,
-                capture_initial_frame=capture_initial,
-            )
-        except Exception as exc:
-            raise ConfigError(f"Invalid video CLI configuration: {exc}") from exc
-
     return PassiveRunCLIOptions(
-        viewer=viewer,
-        duration=duration,
-        log_path=log_path,
-        video=video_settings,
+        viewer=bool(getattr(namespace, "viewer", False)),
+        video=bool(getattr(namespace, "video", False)),
+        logs=bool(getattr(namespace, "logs", False)),
     )
 
 
@@ -167,7 +62,7 @@ def parse_passive_run_cli(
     args: Sequence[str] | None = None,
     parser: argparse.ArgumentParser | None = None,
 ) -> PassiveRunCLIOptions:
-    """Parse the standard passive-run CLI flags into a structured options object."""
+    """Parse the passive-run activation toggles into a structured options object."""
 
     local_parser = parser if parser is not None else argparse.ArgumentParser(description=description)
     if parser is None:

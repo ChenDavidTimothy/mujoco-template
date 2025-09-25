@@ -1,52 +1,71 @@
 from __future__ import annotations
 
+import argparse
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
 
 import mujoco_template as mt
 from cartpole_common import initialize_state as seed_cartpole, make_env as make_cartpole_env
-
-DEFAULT_HEADLESS_STEPS = 2000
-SAMPLE_STRIDE = 50
-INITIAL_CART_POS = 0.0
-INITIAL_CART_VEL = 0.0
-INITIAL_POLE_ANGLE_DEG = 30.0
-INITIAL_POLE_VEL_DEG = 0.0
-
-EXPORT_VIDEO = True
-VIDEO_PATH = Path("cartpole.mp4")
-VIDEO_FPS = 60.0
-VIDEO_WIDTH = 1280
-VIDEO_HEIGHT = 720
-VIDEO_CRF = 18
-VIDEO_PRESET = "medium"
-VIDEO_TUNE: str | None = None
-VIDEO_FASTSTART = True
-VIDEO_CAPTURE_INITIAL_FRAME = True
-
-LOG_PATH: Path | None = None
-HEADLESS_DURATION_SECONDS: float | None = None
-HEADLESS_MAX_STEPS = DEFAULT_HEADLESS_STEPS
-USE_VIEWER = False
-VIEWER_DURATION_SECONDS: float | None = None
-
-VIDEO_SETTINGS = (
-    mt.VideoEncoderSettings(
-        path=VIDEO_PATH,
-        fps=VIDEO_FPS,
-        width=VIDEO_WIDTH,
-        height=VIDEO_HEIGHT,
-        crf=VIDEO_CRF,
-        preset=VIDEO_PRESET,
-        tune=VIDEO_TUNE,
-        faststart=VIDEO_FASTSTART,
-        capture_initial_frame=VIDEO_CAPTURE_INITIAL_FRAME,
-    )
-    if EXPORT_VIDEO
-    else None
+from cartpole_config import (
+    CONFIG,
+    CartPoleConfig,
+    LoggingConfig,
+    SimulationConfig,
+    VideoConfig,
+    ViewerConfig,
 )
+
+
+def parse_cli(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Cartpole example (MuJoCo Template)")
+    parser.add_argument(
+        "--viewer",
+        action="store_true",
+        help="Force enable the interactive viewer using config defaults.",
+    )
+    parser.add_argument(
+        "--video",
+        action="store_true",
+        help="Force enable video export using config defaults.",
+    )
+    parser.add_argument(
+        "--logs",
+        action="store_true",
+        help="Force enable CSV logging using config defaults.",
+    )
+    return parser.parse_args(argv)
+
+
+def _video_settings_from_config(
+    video_cfg: VideoConfig,
+    force_enable: bool,
+) -> mt.VideoEncoderSettings | None:
+    if not (video_cfg.enabled or force_enable):
+        return None
+    return mt.VideoEncoderSettings(
+        path=video_cfg.path,
+        fps=video_cfg.fps,
+        width=video_cfg.width,
+        height=video_cfg.height,
+        crf=video_cfg.crf,
+        preset=video_cfg.preset,
+        tune=video_cfg.tune,
+        faststart=video_cfg.faststart,
+        capture_initial_frame=video_cfg.capture_initial_frame,
+    )
+
+
+def _log_path_from_config(logging_cfg: LoggingConfig, force_enable: bool) -> Path | None:
+    if not (logging_cfg.enabled or force_enable):
+        return None
+    return logging_cfg.path
+
+
+def _viewer_requested(viewer_cfg: ViewerConfig, force_enable: bool) -> bool:
+    return bool(viewer_cfg.enabled or force_enable)
 
 
 class CartPolePIDController:
@@ -152,8 +171,8 @@ def _resolve_primary_columns(model: mt.mj.MjModel) -> dict[str, str]:
     }
 
 
-def build_env() -> mt.Env:
-    controller = CartPolePIDController()
+def build_env(config: CartPoleConfig) -> mt.Env:
+    controller = CartPolePIDController(**asdict(config.controller))
     obs_spec = mt.ObservationSpec(
         include_ctrl=True,
         include_sensordata=False,
@@ -163,22 +182,27 @@ def build_env() -> mt.Env:
     return make_cartpole_env(obs_spec=obs_spec, controller=controller)
 
 
-def run_headless(env: mt.Env) -> None:
-    max_steps = HEADLESS_MAX_STEPS
-    if HEADLESS_DURATION_SECONDS is not None:
+def run_headless(
+    env: mt.Env,
+    sim_cfg: SimulationConfig,
+    video_settings: mt.VideoEncoderSettings | None,
+    log_path: Path | None,
+) -> None:
+    max_steps = sim_cfg.headless_max_steps
+    if sim_cfg.headless_duration_seconds is not None:
         timestep = float(env.model.opt.timestep)
-        max_steps = max(1, int(round(HEADLESS_DURATION_SECONDS / timestep)))
+        max_steps = max(1, int(round(sim_cfg.headless_duration_seconds / timestep)))
 
     print("Running cartpole PID rollout (headless)...")
     probes = _make_tip_probes(env)
     columns = _resolve_primary_columns(env.model)
 
-    with mt.StateControlRecorder(env, log_path=LOG_PATH, probes=probes) as recorder:
+    with mt.StateControlRecorder(env, log_path=log_path, probes=probes) as recorder:
         hooks = [recorder]
-        if VIDEO_SETTINGS is not None:
-            exporter = mt.VideoExporter(env, VIDEO_SETTINGS)
+        if video_settings is not None:
+            exporter = mt.VideoExporter(env, video_settings)
             steps = mt.run_passive_video(env, exporter, max_steps=max_steps, hooks=hooks)
-            print(f"Exported {steps} steps to {VIDEO_SETTINGS.path}")
+            print(f"Exported {steps} steps to {video_settings.path}")
         else:
             mt.run_passive_headless(env, max_steps=max_steps, hooks=hooks)
         rows = list(recorder.rows)
@@ -196,7 +220,7 @@ def run_headless(env: mt.Env) -> None:
     force_idx = column_index[columns["force"]]
     tip_z_idx = column_index[columns["tip_z"]]
 
-    for idx in range(0, len(rows), SAMPLE_STRIDE):
+    for idx in range(0, len(rows), sim_cfg.sample_stride):
         row = rows[idx]
         print(
             "t={:5.2f}s cart={:6.3f}m cartdot={:6.3f}m/s pole={:6.2f}deg poledot={:6.2f}deg/s force={:6.2f}N tip_z={:6.3f}m".format(
@@ -222,41 +246,49 @@ def run_headless(env: mt.Env) -> None:
     )
 
 
-def run_viewer(env: mt.Env) -> None:
+def run_viewer(env: mt.Env, viewer_cfg: ViewerConfig, log_path: Path | None) -> None:
     print("Launching MuJoCo viewer... close the window to exit.")
 
     probes = _make_tip_probes(env)
-    with mt.StateControlRecorder(env, log_path=LOG_PATH, store_rows=False, probes=probes) as recorder:
+    with mt.StateControlRecorder(env, log_path=log_path, store_rows=False, probes=probes) as recorder:
         try:
-            mt.run_passive_viewer(env, duration=VIEWER_DURATION_SECONDS, hooks=recorder)
+            mt.run_passive_viewer(env, duration=viewer_cfg.duration_seconds, hooks=recorder)
         except mt.TemplateError as exc:  # pragma: no cover - viewer availability depends on platform
             raise SystemExit(str(exc)) from exc
 
     print("Viewer closed. Final simulated time: {:.3f}s".format(env.data.time))
 
 
-def main() -> None:
-    env = build_env()
+def main(argv: list[str] | None = None) -> None:
+    cli = parse_cli(argv)
+    config = CONFIG
+
+    env = build_env(config)
+    seed_cfg = config.initial_state
     seed_cartpole(
         env,
-        cart_position=INITIAL_CART_POS,
-        cart_velocity=INITIAL_CART_VEL,
-        pole_angle_rad=np.deg2rad(INITIAL_POLE_ANGLE_DEG),
-        pole_velocity=np.deg2rad(INITIAL_POLE_VEL_DEG),
+        cart_position=seed_cfg.cart_position,
+        cart_velocity=seed_cfg.cart_velocity,
+        pole_angle_rad=np.deg2rad(seed_cfg.pole_angle_deg),
+        pole_velocity=np.deg2rad(seed_cfg.pole_velocity_deg),
     )
 
     print(
         "Initial cart x: {:.3f} m | pole angle: {:.2f} deg | pole velocity: {:.2f} deg/s".format(
-            INITIAL_CART_POS,
-            INITIAL_POLE_ANGLE_DEG,
-            INITIAL_POLE_VEL_DEG,
+            seed_cfg.cart_position,
+            seed_cfg.pole_angle_deg,
+            seed_cfg.pole_velocity_deg,
         )
     )
 
-    if USE_VIEWER:
-        run_viewer(env)
+    log_path = _log_path_from_config(config.logging, cli.logs)
+    video_settings = _video_settings_from_config(config.video, cli.video)
+    viewer_cfg = config.viewer
+
+    if _viewer_requested(viewer_cfg, cli.viewer):
+        run_viewer(env, viewer_cfg, log_path)
     else:
-        run_headless(env)
+        run_headless(env, config.simulation, video_settings, log_path)
 
 
 if __name__ == "__main__":
