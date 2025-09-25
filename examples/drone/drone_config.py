@@ -45,8 +45,12 @@ RUN_SETTINGS = mt.PassiveRunSettings(
 TRAJECTORY = SimpleNamespace(
     start_position_m=(0.0, 0.0, 0.3),
     start_orientation_wxyz=quat_wxyz_from_body_euler(),
+    start_velocity_mps=(0.0, 0.0, 0.0),
+    start_angular_velocity_radps=(0.0, 0.0, 0.0),
     goal_position_m=(3.0, 0.0, 1.0),
     goal_orientation_wxyz=quat_wxyz_from_body_euler(yaw_deg=-45.0),
+    goal_velocity_mps=(0.0, 0.0, 0.0),
+    goal_angular_velocity_radps=(0.0, 0.0, 0.0),
 )
 
 CONTROLLER = SimpleNamespace(
@@ -60,6 +64,8 @@ CONTROLLER = SimpleNamespace(
     clip_controls=True,
     goal_position_m=TRAJECTORY.goal_position_m,
     goal_orientation_wxyz=TRAJECTORY.goal_orientation_wxyz,
+    goal_velocity_mps=TRAJECTORY.goal_velocity_mps,
+    goal_angular_velocity_radps=TRAJECTORY.goal_angular_velocity_radps,
 )
 
 CONFIG = SimpleNamespace(run=RUN_SETTINGS, trajectory=TRAJECTORY, controller=CONTROLLER)

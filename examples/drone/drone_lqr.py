@@ -21,12 +21,22 @@ class DroneLQRController:
         *,
         start_position: Iterable[float] | None = None,
         start_orientation: Iterable[float] | None = None,
+        start_velocity: Iterable[float] | None = None,
+        start_angular_velocity: Iterable[float] | None = None,
     ) -> None:
         self.capabilities = mt.ControllerCapabilities(control_space=mt.ControlSpace.TORQUE)
         self._config = config
         self._start_position_cfg = None if start_position is None else np.asarray(start_position, dtype=float)
         self._start_orientation_cfg = (
             None if start_orientation is None else self._normalize_quat(np.asarray(start_orientation, dtype=float))
+        )
+        self._start_velocity_cfg = (
+            None if start_velocity is None else self._normalize_vector(start_velocity, "linear velocity")
+        )
+        self._start_angular_velocity_cfg = (
+            None
+            if start_angular_velocity is None
+            else self._normalize_vector(start_angular_velocity, "angular velocity")
         )
 
         self._prepared = False
@@ -35,9 +45,13 @@ class DroneLQRController:
 
         self._qpos_goal: np.ndarray | None = None
         self._qpos_start: np.ndarray | None = None
+        self._qvel_goal: np.ndarray | None = None
+        self._qvel_start: np.ndarray | None = None
         self._ctrl0: np.ndarray | None = None
         self._goal_position: np.ndarray | None = None
         self._goal_orientation: np.ndarray | None = None
+        self._goal_velocity: np.ndarray | None = None
+        self._goal_angular_velocity: np.ndarray | None = None
         self._K: np.ndarray | None = None
         self._A: np.ndarray | None = None
         self._B: np.ndarray | None = None
@@ -67,6 +81,10 @@ class DroneLQRController:
 
         goal_position = self._normalize_position(cfg.goal_position_m)
         goal_orientation = self._normalize_quat(np.asarray(cfg.goal_orientation_wxyz, dtype=float))
+        goal_velocity = self._normalize_vector(getattr(cfg, "goal_velocity_mps", (0.0, 0.0, 0.0)), "linear velocity")
+        goal_angular_velocity = self._normalize_vector(
+            getattr(cfg, "goal_angular_velocity_radps", (0.0, 0.0, 0.0)), "angular velocity"
+        )
 
         qpos_goal = np.array(qpos_hover, copy=True)
         qpos_goal[:3] = goal_position
@@ -76,13 +94,20 @@ class DroneLQRController:
             goal_position if self._start_position_cfg is None else self._normalize_position(self._start_position_cfg)
         )
         start_orientation = goal_orientation if self._start_orientation_cfg is None else self._start_orientation_cfg
+        start_velocity = goal_velocity if self._start_velocity_cfg is None else self._start_velocity_cfg
+        start_angular_velocity = (
+            goal_angular_velocity if self._start_angular_velocity_cfg is None else self._start_angular_velocity_cfg
+        )
+
+        qvel_goal = self._compose_qvel(goal_velocity, goal_angular_velocity)
+        qvel_start = self._compose_qvel(start_velocity, start_angular_velocity)
 
         qpos_start = np.array(qpos_goal, copy=True)
         qpos_start[:3] = start_position
         qpos_start[3:7] = start_orientation
 
         work.qpos[:] = qpos_goal
-        work.qvel[:] = 0.0
+        work.qvel[:] = qvel_goal
         work.ctrl[: self._nu] = ctrl_hover
         mt.mj.mj_forward(model, work)
 
@@ -98,9 +123,13 @@ class DroneLQRController:
 
         self._qpos_goal = qpos_goal
         self._qpos_start = qpos_start
+        self._qvel_goal = qvel_goal
+        self._qvel_start = qvel_start
         self._ctrl0 = ctrl_hover
         self._goal_position = goal_position
         self._goal_orientation = goal_orientation
+        self._goal_velocity = goal_velocity
+        self._goal_angular_velocity = goal_angular_velocity
         self._K = K
         self._A = A
         self._B = B
@@ -131,10 +160,11 @@ class DroneLQRController:
             raise mt.TemplateError("DroneLQRController invoked before prepare().")
         assert self._dq_scratch is not None and self._dx_scratch is not None
         assert self._ctrl_delta is not None and self._ctrl_buffer is not None
+        assert self._qvel_goal is not None
 
         mt.mj.mj_differentiatePos(model, self._dq_scratch, 1.0, self._qpos_goal, data.qpos)
         self._dx_scratch[: self._nv] = self._dq_scratch
-        self._dx_scratch[self._nv :] = data.qvel
+        self._dx_scratch[self._nv :] = data.qvel - self._qvel_goal
 
         self._ctrl_delta[:] = self._K @ self._dx_scratch
         self._ctrl_buffer[:] = self._ctrl0 - self._ctrl_delta
@@ -172,6 +202,23 @@ class DroneLQRController:
         if norm == 0.0:
             raise mt.ConfigError("Quaternion magnitude must be non-zero.")
         return quat / norm
+
+    @staticmethod
+    def _normalize_vector(vector: Iterable[float], kind: str) -> np.ndarray:
+        vec = np.asarray(vector, dtype=float).reshape(-1)
+        if vec.size != 3:
+            raise mt.ConfigError(f"{kind.capitalize()} specifications must be length-3 tuples.")
+        return vec
+
+    def _compose_qvel(self, linear_velocity: np.ndarray, angular_velocity: np.ndarray) -> np.ndarray:
+        qvel = np.zeros(self._nv)
+        pos_dim = min(3, self._nv)
+        rot_dim = min(3, max(0, self._nv - pos_dim))
+        if pos_dim > 0:
+            qvel[:pos_dim] = linear_velocity[:pos_dim]
+        if rot_dim > 0:
+            qvel[pos_dim : pos_dim + rot_dim] = angular_velocity[:rot_dim]
+        return qvel
 
     def _build_state_cost(self, cfg) -> np.ndarray:
         nv = self._nv
@@ -252,6 +299,18 @@ class DroneLQRController:
         return np.array(self._qpos_start, copy=True)
 
     @property
+    def qvel_goal(self) -> np.ndarray:
+        if self._qvel_goal is None:
+            raise mt.TemplateError("Goal velocity requested before prepare().")
+        return np.array(self._qvel_goal, copy=True)
+
+    @property
+    def qvel_start(self) -> np.ndarray:
+        if self._qvel_start is None:
+            raise mt.TemplateError("Start velocity requested before prepare().")
+        return np.array(self._qvel_start, copy=True)
+
+    @property
     def ctrl_equilibrium(self) -> np.ndarray:
         if self._ctrl0 is None:
             raise mt.TemplateError("Equilibrium controls requested before prepare().")
@@ -268,6 +327,18 @@ class DroneLQRController:
         if self._goal_orientation is None:
             raise mt.TemplateError("Goal orientation requested before prepare().")
         return np.array(self._goal_orientation, copy=True)
+
+    @property
+    def goal_velocity(self) -> np.ndarray:
+        if self._goal_velocity is None:
+            raise mt.TemplateError("Goal velocity requested before prepare().")
+        return np.array(self._goal_velocity, copy=True)
+
+    @property
+    def goal_angular_velocity(self) -> np.ndarray:
+        if self._goal_angular_velocity is None:
+            raise mt.TemplateError("Goal angular velocity requested before prepare().")
+        return np.array(self._goal_angular_velocity, copy=True)
 
     @property
     def gains(self) -> np.ndarray:
@@ -289,6 +360,8 @@ def build_env() -> mt.Env:
         ctrl_cfg,
         start_position=traj_cfg.start_position_m,
         start_orientation=traj_cfg.start_orientation_wxyz,
+        start_velocity=traj_cfg.start_velocity_mps,
+        start_angular_velocity=traj_cfg.start_angular_velocity_radps,
     )
     obs_spec = mt.ObservationSpec(include_ctrl=True, include_sensordata=False, include_time=True)
     return make_env(obs_spec=obs_spec, controller=controller)
@@ -298,7 +371,7 @@ def seed_env(env: mt.Env) -> None:
     env.reset()
     controller = _require_lqr_controller(env.controller)
     env.data.qpos[:] = controller.qpos_start
-    env.data.qvel[:] = 0.0
+    env.data.qvel[:] = controller.qvel_start
     env.data.ctrl[: controller.ctrl_equilibrium.shape[0]] = controller.ctrl_equilibrium
     env.handle.forward()
 
@@ -322,9 +395,34 @@ def summarize(result: mt.PassiveRunResult) -> None:
 
     final_position = np.array(result.env.data.qpos[:3], dtype=float)
     final_velocity = np.array(result.env.data.qvel[:3], dtype=float)
+    goal_velocity = controller.goal_velocity
+    goal_angular_velocity = controller.goal_angular_velocity
+
+    qvel_goal = controller.qvel_goal
+    pos_dim = min(3, qvel_goal.size)
+    rot_dim = min(3, max(0, qvel_goal.size - pos_dim))
+    final_qvel = np.array(result.env.data.qvel, dtype=float)
+    final_linear = np.zeros(3)
+    final_linear[:pos_dim] = final_qvel[:pos_dim]
+    final_angular = np.zeros(3)
+    if rot_dim > 0:
+        final_angular[:rot_dim] = final_qvel[pos_dim : pos_dim + rot_dim]
+
     print(
         "Final position [{:.3f}, {:.3f}, {:.3f}] m | target [{:.3f}, {:.3f}, {:.3f}] m".format(
             *final_position, *goal
+        )
+    )
+    print(
+        "Final velocity [{:.3f}, {:.3f}, {:.3f}] m/s | target [{:.3f}, {:.3f}, {:.3f}] m/s".format(
+            *final_linear,
+            *goal_velocity,
+        )
+    )
+    print(
+        "Final angular velocity [{:.3f}, {:.3f}, {:.3f}] rad/s | target [{:.3f}, {:.3f}, {:.3f}] rad/s".format(
+            *final_angular,
+            *goal_angular_velocity,
         )
     )
     print(
@@ -356,6 +454,18 @@ def main(argv=None) -> None:
         "Start position [{:.2f}, {:.2f}, {:.2f}] m | duration {} steps".format(
             *np.asarray(traj_cfg.start_position_m, dtype=float),
             CONFIG.run.simulation.max_steps,
+        )
+    )
+    print(
+        "Start velocity [{:.2f}, {:.2f}, {:.2f}] m/s | angular [{:.2f}, {:.2f}, {:.2f}] rad/s".format(
+            *np.asarray(traj_cfg.start_velocity_mps, dtype=float),
+            *np.asarray(traj_cfg.start_angular_velocity_radps, dtype=float),
+        )
+    )
+    print(
+        "Goal velocity [{:.2f}, {:.2f}, {:.2f}] m/s | angular [{:.2f}, {:.2f}, {:.2f}] rad/s".format(
+            *np.asarray(ctrl_cfg.goal_velocity_mps, dtype=float),
+            *np.asarray(ctrl_cfg.goal_angular_velocity_radps, dtype=float),
         )
     )
     result = HARNESS.run_from_cli(CONFIG.run, args=argv)
