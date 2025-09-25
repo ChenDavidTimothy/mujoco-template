@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -19,6 +20,39 @@ INITIAL_VELOCITY_DEG = 0.0
 TARGET_ANGLE_DEG = 0.0
 KP = 20.0
 KD = 4.0
+
+EXPORT_VIDEO = True
+VIDEO_PATH = Path("pendulum.mp4")
+VIDEO_FPS = 60.0
+VIDEO_WIDTH = 1280
+VIDEO_HEIGHT = 720
+VIDEO_CRF = 18
+VIDEO_PRESET = "medium"
+VIDEO_TUNE: str | None = None
+VIDEO_FASTSTART = True
+VIDEO_CAPTURE_INITIAL_FRAME = True
+
+LOG_PATH: Path | None = None
+HEADLESS_DURATION_SECONDS: float | None = None
+HEADLESS_MAX_STEPS = DEFAULT_HEADLESS_STEPS
+USE_VIEWER = False
+VIEWER_DURATION_SECONDS: float | None = None
+
+VIDEO_SETTINGS = (
+    mt.VideoEncoderSettings(
+        path=VIDEO_PATH,
+        fps=VIDEO_FPS,
+        width=VIDEO_WIDTH,
+        height=VIDEO_HEIGHT,
+        crf=VIDEO_CRF,
+        preset=VIDEO_PRESET,
+        tune=VIDEO_TUNE,
+        faststart=VIDEO_FASTSTART,
+        capture_initial_frame=VIDEO_CAPTURE_INITIAL_FRAME,
+    )
+    if EXPORT_VIDEO
+    else None
+)
 
 
 class PendulumPDController:
@@ -55,23 +89,22 @@ def build_env() -> mt.Env:
     return make_pendulum_env(obs_spec=obs_spec, controller=controller)
 
 
-def run_headless(env: mt.Env, options: mt.PassiveRunCLIOptions) -> None:
-    timestep = float(env.model.opt.timestep)
-    if options.duration is None:
-        max_steps = DEFAULT_HEADLESS_STEPS
-    else:
-        max_steps = max(1, int(round(options.duration / timestep)))
+def run_headless(env: mt.Env) -> None:
+    max_steps = HEADLESS_MAX_STEPS
+    if HEADLESS_DURATION_SECONDS is not None:
+        timestep = float(env.model.opt.timestep)
+        max_steps = max(1, int(round(HEADLESS_DURATION_SECONDS / timestep)))
 
     print("Running pendulum rollout (headless)...")
     probes = make_tip_probes(env)
     columns = resolve_pendulum_columns(env.model)
 
-    with mt.StateControlRecorder(env, log_path=options.log_path, probes=probes) as recorder:
+    with mt.StateControlRecorder(env, log_path=LOG_PATH, probes=probes) as recorder:
         hooks = [recorder]
-        if options.video is not None:
-            exporter = mt.VideoExporter(env, options.video)
+        if VIDEO_SETTINGS is not None:
+            exporter = mt.VideoExporter(env, VIDEO_SETTINGS)
             steps = mt.run_passive_video(env, exporter, max_steps=max_steps, hooks=hooks)
-            print(f"Exported {steps} steps to {options.video.path}")
+            print(f"Exported {steps} steps to {VIDEO_SETTINGS.path}")
         else:
             mt.run_passive_headless(env, max_steps=max_steps, hooks=hooks)
         rows = list(recorder.rows)
@@ -104,13 +137,13 @@ def run_headless(env: mt.Env, options: mt.PassiveRunCLIOptions) -> None:
     print(f"Tip height range: {tip_z.min():.4f} m to {tip_z.max():.4f} m over {times[-1]:.3f}s")
 
 
-def run_viewer(env: mt.Env, options: mt.PassiveRunCLIOptions) -> None:
+def run_viewer(env: mt.Env) -> None:
     print("Launching MuJoCo viewer... close the window to exit.")
 
     probes = make_tip_probes(env)
-    with mt.StateControlRecorder(env, log_path=options.log_path, store_rows=False, probes=probes) as recorder:
+    with mt.StateControlRecorder(env, log_path=LOG_PATH, store_rows=False, probes=probes) as recorder:
         try:
-            mt.run_passive_viewer(env, duration=options.duration, hooks=recorder)
+            mt.run_passive_viewer(env, duration=VIEWER_DURATION_SECONDS, hooks=recorder)
         except mt.TemplateError as exc:  # pragma: no cover - viewer availability depends on platform
             raise SystemExit(str(exc)) from exc
 
@@ -118,7 +151,6 @@ def run_viewer(env: mt.Env, options: mt.PassiveRunCLIOptions) -> None:
 
 
 def main() -> None:
-    options = mt.parse_passive_run_cli("PD-controlled pendulum demo")
     env = build_env()
     seed_pendulum(env, angle_deg=INITIAL_ANGLE_DEG, velocity_deg=INITIAL_VELOCITY_DEG)
 
@@ -128,10 +160,10 @@ def main() -> None:
         )
     )
 
-    if options.viewer:
-        run_viewer(env, options)
+    if USE_VIEWER:
+        run_viewer(env)
     else:
-        run_headless(env, options)
+        run_headless(env)
 
 
 if __name__ == "__main__":
