@@ -2,6 +2,8 @@
 from pathlib import Path
 from typing import Callable, TypeVar, cast
 
+import math
+import shutil
 import numpy as np
 import mujoco as mj
 import pytest
@@ -9,6 +11,7 @@ import mujoco_template.runtime as runtime
 import mujoco_template.logging as logging_mod
 
 from mujoco_template import (
+    AdaptiveCameraSettings,
     Observation,
     ObservationSpec,
     ObservationExtractor,
@@ -31,6 +34,7 @@ from mujoco_template import (
     SimulationSettings,
     PassiveRunCLIOptions,
 )
+from mujoco_template.adaptive_camera import AdaptiveFramingController
 
 BASE_XML = """
 <mujoco model="template-test">
@@ -337,6 +341,7 @@ def test_quick_rollout_returns_observations_list(tmp_path: Path) -> None:
     assert isinstance(first, dict)
     assert "qpos" in first
 
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="FFmpeg binary is unavailable")
 def test_run_passive_video_exports_mp4(tmp_path: Path) -> None:
     handle = ModelHandle.from_xml_string(BASE_XML)
     env = Env(handle, controller=ZeroController())
@@ -361,6 +366,83 @@ def test_run_passive_video_exports_mp4(tmp_path: Path) -> None:
     assert float(env.model.vis.global_.offheight) >= settings.height
     assert output_path.is_file()
     assert output_path.stat().st_size > 0
+
+
+def test_adaptive_camera_distance_policy_adjusts_zoom(tmp_path: Path) -> None:
+    model_xml = """
+    <mujoco model="camera-test">
+      <worldbody>
+        <body name="anchor">
+          <site name="poi" pos="1 1 0"/>
+        </body>
+      </worldbody>
+    </mujoco>
+    """
+    handle = ModelHandle.from_xml_string(model_xml)
+    handle.forward()
+    settings = AdaptiveCameraSettings(
+        enabled=True,
+        zoom_policy="distance",
+        azimuth=0.0,
+        elevation=0.0,
+        distance=1.0,
+        lookat=(0.0, 0.0, 0.0),
+        min_distance=0.5,
+        max_distance=5.0,
+        safety_margin=0.0,
+        widen_threshold=0.7,
+        tighten_threshold=0.5,
+        smoothing_time_constant=0.0,
+        points_of_interest=("site:poi",),
+    )
+    encoder = VideoEncoderSettings(path=tmp_path / "cam.mp4", width=512, height=512)
+    controller = AdaptiveFramingController(handle.model, settings, encoder)
+    camera = controller.camera
+    data = handle.data
+
+    data.site_xpos[0] = np.array([1.0, 1.0, 0.0])
+    controller(camera, handle.model, data)
+    tan_half = math.tan(math.radians(handle.model.vis.global_.fovy) * 0.5)
+    required = 1.0 / (tan_half * settings.widen_threshold) - 1.0
+    assert camera.distance == pytest.approx(required, rel=1e-6)
+
+    data.site_xpos[0] = np.array([1.0, 0.05, 0.0])
+    controller(camera, handle.model, data)
+    assert camera.distance == pytest.approx(settings.min_distance, rel=1e-6)
+
+
+def test_adaptive_camera_recenters_along_axis(tmp_path: Path) -> None:
+    model_xml = """
+    <mujoco model="camera-recenter">
+      <worldbody>
+        <body name="anchor">
+          <site name="poi" pos="0 0 0"/>
+        </body>
+      </worldbody>
+    </mujoco>
+    """
+    handle = ModelHandle.from_xml_string(model_xml)
+    handle.forward()
+    settings = AdaptiveCameraSettings(
+        enabled=True,
+        zoom_policy="distance",
+        azimuth=90.0,
+        elevation=-45.0,
+        distance=2.0,
+        lookat=(0.0, 0.0, 0.0),
+        recenter_axis="y",
+        recenter_time_constant=0.0,
+        smoothing_time_constant=0.0,
+        points_of_interest=("site:poi",),
+    )
+    encoder = VideoEncoderSettings(path=tmp_path / "recenter.mp4", width=640, height=480)
+    controller = AdaptiveFramingController(handle.model, settings, encoder)
+    camera = controller.camera
+    data = handle.data
+
+    data.site_xpos[0] = np.array([0.0, 0.5, 0.0])
+    controller(camera, handle.model, data)
+    assert camera.lookat[1] == pytest.approx(0.5)
 
 
 def _install_dummy_recorder(monkeypatch: pytest.MonkeyPatch) -> None:

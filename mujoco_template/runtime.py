@@ -10,9 +10,12 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, IO, Protocol, TYPE_CHECKING, cast
 
+import mujoco as mj
+
+from .adaptive_camera import AdaptiveCameraSettings, AdaptiveFramingController
 from .env import Env, StepResult
 from .exceptions import ConfigError, TemplateError
-from .video import VideoEncoderSettings, VideoExporter
+from .video import CameraUpdater, VideoEncoderSettings, VideoExporter
 
 StepHook = Callable[[StepResult], None]
 
@@ -127,6 +130,7 @@ class VideoSettings:
     tune: str | None = None
     faststart: bool = True
     capture_initial_frame: bool = True
+    adaptive_camera: AdaptiveCameraSettings | None = None
 
     def __post_init__(self) -> None:
         if self.fps <= 0:
@@ -301,6 +305,13 @@ class PassiveRunHarness:
             resolved.video.make_encoder_settings() if resolved.video.enabled else None
         )
 
+        adaptive_camera_cfg = (
+            resolved.video.adaptive_camera if resolved.video.enabled else None
+        )
+        camera_controller: AdaptiveFramingController | None = None
+        camera_obj: mj.MjvCamera | None = None
+        camera_updater: CameraUpdater | None = None
+
         if self._start_message is not None:
             print(self._start_message)
 
@@ -313,14 +324,27 @@ class PassiveRunHarness:
                     hooks=hooks,
                 )
             elif video_encoder is not None:
-                exporter = VideoExporter(env, video_encoder)
-                steps = run_passive_video(
+                if adaptive_camera_cfg is not None and adaptive_camera_cfg.enabled:
+                    camera_controller = AdaptiveFramingController(env.model, adaptive_camera_cfg, video_encoder)
+                    camera_obj = camera_controller.camera
+                    camera_updater = camera_controller
+                exporter = VideoExporter(
                     env,
-                    exporter,
-                    duration=resolved.simulation.duration_seconds,
-                    max_steps=resolved.simulation.max_steps,
-                    hooks=hooks,
+                    video_encoder,
+                    camera=camera_obj,
+                    camera_updater=camera_updater,
                 )
+                try:
+                    steps = run_passive_video(
+                        env,
+                        exporter,
+                        duration=resolved.simulation.duration_seconds,
+                        max_steps=resolved.simulation.max_steps,
+                        hooks=hooks,
+                    )
+                finally:
+                    if camera_controller is not None:
+                        camera_controller.restore()
                 video_path = video_encoder.path
                 print(f"Exported {steps} steps to {video_path}")
             else:
@@ -552,4 +576,5 @@ __all__ = [
     "run_passive_headless",
     "run_passive_viewer",
     "run_passive_video",
+    "AdaptiveCameraSettings",
 ]

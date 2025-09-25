@@ -86,6 +86,10 @@ When a controller declares `needs_linearization` or `needs_jacobians`, `Env.step
 ## Logging and Runtime Helpers
 `TrajectoryLogger` outputs CSV trajectories with custom formatting logic. `StateControlRecorder` provides a ready-to-use `StepHook` that records time, qpos, qvel, controls, and optional derived probes on every step. The runtime module also includes `iterate_passive`, `run_passive_headless`, and `run_passive_viewer` to drive simulations in headless or interactive viewer modes.
 
+### Adaptive Framing Camera for Video Export
+
+Programmatic video exports now support an adaptive framing camera. Populate `VideoSettings.adaptive_camera` with an `AdaptiveCameraSettings` instance to enable distance-, FOV-, or orthographic-based zoom control while keeping the camera orientation fixed. The controller tracks named points of interest (`"body:<name>"`, `"site:<name>"`, `"geom:<name>"`, or COM variants), expands or contracts the shot using configurable hysteresis thresholds, and applies exponential smoothing and optional single-axis recentering for stable footage. Bounds, safety margins, smoothing constants, and zoom policy are all configured explicitly, and the feature is entirely opt-in—the previous behaviour remains unchanged when the adaptive camera is not supplied.
+
 ## Examples
 Self-contained MJCF examples live under `examples/`:
 - `examples/pendulum` - passive pendulum demos.
