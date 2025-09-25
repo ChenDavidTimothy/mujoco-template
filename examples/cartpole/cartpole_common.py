@@ -1,7 +1,4 @@
-from __future__ import annotations
-
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
@@ -10,18 +7,13 @@ import mujoco_template as mt
 CARTPOLE_XML = Path(__file__).with_name("cartpole.xml")
 
 
-def load_model_handle() -> mt.ModelHandle:
+def load_model_handle():
     """Return a fresh handle bound to the cartpole MuJoCo model."""
 
     return mt.ModelHandle.from_xml_path(str(CARTPOLE_XML))
 
 
-def make_env(
-    *,
-    obs_spec: mt.ObservationSpec,
-    controller: mt.Controller | None = None,
-    **env_kwargs: Any,
-) -> mt.Env:
+def make_env(*, obs_spec, controller=None, **env_kwargs):
     """Construct an Env for the cartpole with the given observation/ctrl configuration."""
 
     handle = load_model_handle()
@@ -29,13 +21,13 @@ def make_env(
 
 
 def initialize_state(
-    env: mt.Env,
+    env,
     *,
-    cart_position: float = 0.0,
-    cart_velocity: float = 0.0,
-    pole_angle_rad: float = 0.0,
-    pole_velocity: float = 0.0,
-) -> None:
+    cart_position=0.0,
+    cart_velocity=0.0,
+    pole_angle_rad=0.0,
+    pole_velocity=0.0,
+):
     """Reset and seed the cartpole configuration in-place."""
 
     env.reset()
