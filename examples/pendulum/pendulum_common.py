@@ -1,7 +1,4 @@
-from __future__ import annotations
-
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
@@ -10,30 +7,20 @@ import mujoco_template as mt
 PENDULUM_XML = Path(__file__).with_name("pendulum.xml")
 
 
-def load_model_handle() -> mt.ModelHandle:
+def load_model_handle():
     """Return a fresh handle to the pendulum MuJoCo model."""
 
     return mt.ModelHandle.from_xml_path(str(PENDULUM_XML))
 
 
-def make_env(
-    *,
-    obs_spec: mt.ObservationSpec,
-    controller: mt.Controller | None = None,
-    **env_kwargs: Any,
-) -> mt.Env:
+def make_env(*, obs_spec, controller=None, **env_kwargs):
     """Construct an Env for the pendulum using the given observation spec and controller."""
 
     handle = load_model_handle()
     return mt.Env(handle, obs_spec=obs_spec, controller=controller, **env_kwargs)
 
 
-def initialize_state(
-    env: mt.Env,
-    *,
-    angle_deg: float,
-    velocity_deg: float,
-) -> None:
+def initialize_state(env, *, angle_deg, velocity_deg):
     """Reset and seed the pendulum environment with the requested pose."""
 
     env.reset()
@@ -42,14 +29,14 @@ def initialize_state(
     env.handle.forward()
 
 
-def require_site_id(model: mt.mj.MjModel, name: str) -> int:
+def require_site_id(model, name):
     site_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_SITE, name))
     if site_id < 0:
         raise mt.NameLookupError(f"Site not found in model: {name}")
     return site_id
 
 
-def resolve_joint_label(model: mt.mj.MjModel, name: str) -> str:
+def resolve_joint_label(model, name):
     joint_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_JOINT, name))
     if joint_id < 0:
         raise mt.NameLookupError(f"Joint not found in model: {name}")
@@ -57,7 +44,7 @@ def resolve_joint_label(model: mt.mj.MjModel, name: str) -> str:
     return resolved if resolved is not None else f"joint_{joint_id}"
 
 
-def resolve_actuator_label(model: mt.mj.MjModel, name: str) -> str:
+def resolve_actuator_label(model, name):
     actuator_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_ACTUATOR, name))
     if actuator_id < 0:
         raise mt.NameLookupError(f"Actuator not found in model: {name}")
@@ -65,7 +52,7 @@ def resolve_actuator_label(model: mt.mj.MjModel, name: str) -> str:
     return resolved if resolved is not None else f"actuator_{actuator_id}"
 
 
-def make_tip_probes(env: mt.Env) -> tuple[mt.DataProbe, ...]:
+def make_tip_probes(env):
     tip_id = require_site_id(env.model, "tip")
     return (
         mt.DataProbe("tip_x_m", lambda e, _r, sid=tip_id: float(e.data.site_xpos[sid, 0])),
@@ -73,7 +60,7 @@ def make_tip_probes(env: mt.Env) -> tuple[mt.DataProbe, ...]:
     )
 
 
-def resolve_pendulum_columns(model: mt.mj.MjModel) -> dict[str, str]:
+def resolve_pendulum_columns(model):
     hinge_label = resolve_joint_label(model, "hinge")
     if model.nu > 0:
         actuator_label = resolve_actuator_label(model, "torque")

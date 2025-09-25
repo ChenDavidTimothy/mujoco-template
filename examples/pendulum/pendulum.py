@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import sys
 
 import numpy as np
@@ -17,17 +15,17 @@ from pendulum_config import CONFIG
 class PendulumPDController:
     """Simple PD torque controller that stabilizes the pendulum upright."""
 
-    def __init__(self, kp: float, kd: float, target: float) -> None:
+    def __init__(self, kp, kd, target):
         self.capabilities = mt.ControllerCapabilities(control_space=mt.ControlSpace.TORQUE)
         self.kp = float(kp)
         self.kd = float(kd)
         self.target = float(target)
 
-    def prepare(self, model: mt.mj.MjModel, data: mt.mj.MjData) -> None:
+    def prepare(self, model, data):
         if model.nu != 1:
             raise mt.CompatibilityError("PendulumPDController expects a single actuator.")
 
-    def __call__(self, model: mt.mj.MjModel, data: mt.mj.MjData, t: float) -> None:
+    def __call__(self, model, data, t):
         angle = float(data.qpos[0])
         velocity = float(data.qvel[0])
         torque = -self.kp * (angle - self.target) - self.kd * velocity
@@ -37,7 +35,7 @@ class PendulumPDController:
         data.ctrl[0] = torque
 
 
-def build_env() -> mt.Env:
+def build_env():
     ctrl_cfg = CONFIG.controller
     controller = PendulumPDController(
         kp=ctrl_cfg.kp,
@@ -53,12 +51,12 @@ def build_env() -> mt.Env:
     return make_pendulum_env(obs_spec=obs_spec, controller=controller)
 
 
-def seed_env(env: mt.Env) -> None:
+def seed_env(env):
     init_cfg = CONFIG.initial_state
     seed_pendulum(env, angle_deg=init_cfg.angle_deg, velocity_deg=init_cfg.velocity_deg)
 
 
-def summarize(result: mt.PassiveRunResult) -> None:
+def summarize(result):
     recorder = result.recorder
     rows = recorder.rows
     if not rows:
@@ -102,7 +100,7 @@ HARNESS = mt.PassiveRunHarness(
 )
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv=None):
     init_cfg = CONFIG.initial_state
     ctrl_cfg = CONFIG.controller
     print(

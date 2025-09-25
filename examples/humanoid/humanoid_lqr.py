@@ -1,7 +1,4 @@
-from __future__ import annotations
-
 import sys
-from collections.abc import Sequence
 
 import numpy as np
 import scipy.linalg
@@ -9,37 +6,37 @@ import scipy.linalg
 import mujoco_template as mt
 
 from humanoid_common import make_balance_probes, make_env
-from humanoid_config import CONFIG, ControllerConfig
+from humanoid_config import CONFIG
 
 
 class HumanoidLQRController:
     """LQR controller that balances the MuJoCo humanoid on its left leg."""
 
-    def __init__(self, config: ControllerConfig) -> None:
+    def __init__(self, config):
         self.capabilities = mt.ControllerCapabilities(control_space=mt.ControlSpace.TORQUE)
         self._config = config
         self._prepared = False
 
-        self._qpos0: np.ndarray | None = None
-        self._ctrl0: np.ndarray | None = None
-        self._height_offset: float = 0.0
-        self._K: np.ndarray | None = None
-        self._A: np.ndarray | None = None
-        self._B: np.ndarray | None = None
-        self._balance_dofs: np.ndarray | None = None
-        self._dq_scratch: np.ndarray | None = None
-        self._dx_scratch: np.ndarray | None = None
-        self._ctrl_delta: np.ndarray | None = None
-        self._ctrl_buffer: np.ndarray | None = None
-        self._ctrl_low: np.ndarray | None = None
-        self._ctrl_high: np.ndarray | None = None
-        self._ctrl_std: np.ndarray | None = None
-        self._perturbations: np.ndarray | None = None
-        self._perturb_index: int = 0
-        self._nu: int = 0
-        self._nv: int = 0
+        self._qpos0 = None
+        self._ctrl0 = None
+        self._height_offset = 0.0
+        self._K = None
+        self._A = None
+        self._B = None
+        self._balance_dofs = None
+        self._dq_scratch = None
+        self._dx_scratch = None
+        self._ctrl_delta = None
+        self._ctrl_buffer = None
+        self._ctrl_low = None
+        self._ctrl_high = None
+        self._ctrl_std = None
+        self._perturbations = None
+        self._perturb_index = 0
+        self._nu = 0
+        self._nv = 0
 
-    def prepare(self, model: mt.mj.MjModel, _data: mt.mj.MjData) -> None:
+    def prepare(self, model, _data):
         cfg = self._config
         if model.nu == 0:
             raise mt.CompatibilityError("HumanoidLQRController requires torque actuators (nu > 0).")
@@ -152,7 +149,7 @@ class HumanoidLQRController:
 
         self._prepared = True
 
-    def __call__(self, model: mt.mj.MjModel, data: mt.mj.MjData, _t: float) -> None:
+    def __call__(self, model, data, _t):
         if not self._prepared or self._qpos0 is None or self._K is None:
             raise mt.TemplateError("HumanoidLQRController invoked before prepare().")
         assert self._dq_scratch is not None and self._dx_scratch is not None
@@ -177,7 +174,7 @@ class HumanoidLQRController:
 
         data.ctrl[:] = self._ctrl_buffer
 
-    def _initialize_perturbations(self, model: mt.mj.MjModel, cfg: ControllerConfig) -> None:
+    def _initialize_perturbations(self, model, cfg):
         self._ctrl_std = None
         self._perturbations = None
         self._perturb_index = 0
@@ -222,35 +219,35 @@ class HumanoidLQRController:
         self._perturb_index = 0
 
     @property
-    def qpos_equilibrium(self) -> np.ndarray:
+    def qpos_equilibrium(self):
         if self._qpos0 is None:
             raise mt.TemplateError("Controller equilibrium requested before prepare().")
         return np.array(self._qpos0, copy=True)
 
     @property
-    def ctrl_equilibrium(self) -> np.ndarray:
+    def ctrl_equilibrium(self):
         if self._ctrl0 is None:
             raise mt.TemplateError("Controller equilibrium requested before prepare().")
         return np.array(self._ctrl0, copy=True)
 
     @property
-    def height_offset(self) -> float:
+    def height_offset(self):
         return self._height_offset
 
     @property
-    def gains(self) -> np.ndarray:
+    def gains(self):
         if self._K is None:
             raise mt.TemplateError("Controller gains requested before prepare().")
         return np.array(self._K, copy=True)
 
     @property
-    def balance_dofs(self) -> np.ndarray:
+    def balance_dofs(self):
         if self._balance_dofs is None:
             raise mt.TemplateError("Balance DOFs requested before prepare().")
         return np.array(self._balance_dofs, copy=True)
 
-    def _identify_balance_dofs(self, model: mt.mj.MjModel) -> np.ndarray:
-        dofs: set[int] = set()
+    def _identify_balance_dofs(self, model):
+        dofs = set()
         tokens = ("hip", "knee", "ankle")
         for joint_id in range(model.njnt):
             name = model.joint(joint_id).name
@@ -270,13 +267,13 @@ class HumanoidLQRController:
         return np.array(sorted(dofs), dtype=int)
 
 
-def _require_lqr_controller(controller: mt.Controller | None) -> HumanoidLQRController:
+def _require_lqr_controller(controller):
     if not isinstance(controller, HumanoidLQRController):
         raise mt.TemplateError("HumanoidLQRController is required for this harness.")
     return controller
 
 
-def build_env() -> mt.Env:
+def build_env():
     ctrl_cfg = CONFIG.controller
     controller = HumanoidLQRController(ctrl_cfg)
     obs_spec = mt.ObservationSpec(
@@ -287,7 +284,7 @@ def build_env() -> mt.Env:
     return make_env(obs_spec=obs_spec, controller=controller)
 
 
-def seed_env(env: mt.Env) -> None:
+def seed_env(env):
     env.reset()
     controller = _require_lqr_controller(env.controller)
     env.data.qpos[:] = controller.qpos_equilibrium
@@ -296,7 +293,7 @@ def seed_env(env: mt.Env) -> None:
     env.handle.forward()
 
 
-def summarize(result: mt.PassiveRunResult) -> None:
+def summarize(result):
     controller = _require_lqr_controller(result.env.controller)
     recorder = result.recorder
     rows = recorder.rows
@@ -346,7 +343,7 @@ HARNESS = mt.PassiveRunHarness(
 )
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+def main(argv=None):
     ctrl_cfg = CONFIG.controller
     print(
         "Preparing humanoid LQR controller (keyframe {} | offset range [{:.4f}, {:.4f}] m | samples {})".format(

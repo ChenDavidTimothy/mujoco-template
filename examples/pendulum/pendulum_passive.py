@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import sys
 
 import numpy as np
@@ -14,7 +12,7 @@ from pendulum_common import (
 from pendulum_passive_config import CONFIG
 
 
-def build_env() -> mt.Env:
+def build_env():
     obs_spec = mt.ObservationSpec(
         include_ctrl=False,
         include_sensordata=False,
@@ -24,12 +22,12 @@ def build_env() -> mt.Env:
     return make_pendulum_env(obs_spec=obs_spec)
 
 
-def seed_env(env: mt.Env) -> None:
+def seed_env(env):
     init_cfg = CONFIG.initial_state
     seed_pendulum(env, angle_deg=init_cfg.angle_deg, velocity_deg=init_cfg.velocity_deg)
 
 
-def summarize(result: mt.PassiveRunResult) -> None:
+def summarize(result):
     recorder = result.recorder
     rows = recorder.rows
     if not rows:
@@ -67,7 +65,7 @@ HARNESS = mt.PassiveRunHarness(
 )
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv=None):
     init_cfg = CONFIG.initial_state
     print(
         "Initial pendulum angle: {:.2f} deg; velocity: {:.2f} deg/s".format(
