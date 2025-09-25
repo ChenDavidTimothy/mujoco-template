@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import argparse
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import numpy as np
@@ -17,26 +16,6 @@ from cartpole_config import (
     VideoConfig,
     ViewerConfig,
 )
-
-
-def parse_cli(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Cartpole example (MuJoCo Template)")
-    parser.add_argument(
-        "--viewer",
-        action="store_true",
-        help="Force enable the interactive viewer using config defaults.",
-    )
-    parser.add_argument(
-        "--video",
-        action="store_true",
-        help="Force enable video export using config defaults.",
-    )
-    parser.add_argument(
-        "--logs",
-        action="store_true",
-        help="Force enable CSV logging using config defaults.",
-    )
-    return parser.parse_args(argv)
 
 
 def _video_settings_from_config(
@@ -260,8 +239,16 @@ def run_viewer(env: mt.Env, viewer_cfg: ViewerConfig, log_path: Path | None) -> 
 
 
 def main(argv: list[str] | None = None) -> None:
-    cli = parse_cli(argv)
+    options = mt.parse_passive_run_cli(
+        "Cartpole example (MuJoCo Template)", args=argv
+    )
     config = CONFIG
+
+    sim_cfg = config.simulation
+    viewer_cfg = config.viewer
+    if options.duration is not None:
+        sim_cfg = replace(sim_cfg, headless_duration_seconds=options.duration)
+        viewer_cfg = replace(viewer_cfg, duration_seconds=options.duration)
 
     env = build_env(config)
     seed_cfg = config.initial_state
@@ -281,14 +268,13 @@ def main(argv: list[str] | None = None) -> None:
         )
     )
 
-    log_path = _log_path_from_config(config.logging, cli.logs)
-    video_settings = _video_settings_from_config(config.video, cli.video)
-    viewer_cfg = config.viewer
+    log_path = _log_path_from_config(config.logging, options.logs)
+    video_settings = _video_settings_from_config(config.video, options.video)
 
-    if _viewer_requested(viewer_cfg, cli.viewer):
+    if _viewer_requested(viewer_cfg, options.viewer):
         run_viewer(env, viewer_cfg, log_path)
     else:
-        run_headless(env, config.simulation, video_settings, log_path)
+        run_headless(env, sim_cfg, video_settings, log_path)
 
 
 if __name__ == "__main__":

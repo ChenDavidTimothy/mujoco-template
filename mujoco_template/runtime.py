@@ -26,6 +26,7 @@ class PassiveRunCLIOptions:
     viewer: bool
     video: bool
     logs: bool
+    duration: float | None
 
 
 def add_passive_run_arguments(parser: argparse.ArgumentParser) -> None:
@@ -47,12 +48,29 @@ def add_passive_run_arguments(parser: argparse.ArgumentParser) -> None:
         help="Enable trajectory logging using the configuration defaults.",
     )
 
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=None,
+        help="Limit the passive run to N seconds (applies to headless, viewer, and video).",
+    )
+
+
+def _coerce_duration(value: float | None) -> float | None:
+    if value is None:
+        return None
+    duration = float(value)
+    if duration <= 0:
+        raise ConfigError("Duration must be greater than zero when provided.")
+    return duration
+
 
 def _options_from_namespace(namespace: argparse.Namespace) -> PassiveRunCLIOptions:
     return PassiveRunCLIOptions(
         viewer=bool(getattr(namespace, "viewer", False)),
         video=bool(getattr(namespace, "video", False)),
         logs=bool(getattr(namespace, "logs", False)),
+        duration=_coerce_duration(getattr(namespace, "duration", None)),
     )
 
 
