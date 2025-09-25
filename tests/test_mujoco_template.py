@@ -18,6 +18,9 @@ from mujoco_template import (
     Env,
     steady_ctrl0,
     quick_rollout,
+    run_passive_video,
+    VideoEncoderSettings,
+    VideoExporter,
     ZeroController,
 )
 
@@ -325,3 +328,30 @@ def test_quick_rollout_returns_observations_list(tmp_path: Path) -> None:
     first = traj[0]
     assert isinstance(first, dict)
     assert "qpos" in first
+
+def test_run_passive_video_exports_mp4(tmp_path: Path) -> None:
+    handle = ModelHandle.from_xml_string(BASE_XML)
+    env = Env(handle, controller=ZeroController())
+    env.reset()
+
+    output_path = tmp_path / "export.mp4"
+    settings = VideoEncoderSettings(
+        path=output_path,
+        fps=30.0,
+        width=1024,
+        height=720,
+        crf=20,
+        preset="fast",
+    )
+    exporter = VideoExporter(env, settings)
+
+    steps = run_passive_video(env, exporter, max_steps=60)
+
+    assert steps == 60
+    assert exporter.frames_written >= 2
+    assert float(env.model.vis.global_.offwidth) >= settings.width
+    assert float(env.model.vis.global_.offheight) >= settings.height
+    assert output_path.is_file()
+    assert output_path.stat().st_size > 0
+
+

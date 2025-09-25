@@ -12,6 +12,7 @@ from typing import Any, IO, Protocol, cast
 
 from .env import Env, StepResult
 from .exceptions import ConfigError, TemplateError
+from .video import VideoEncoderSettings, VideoExporter
 
 StepHook = Callable[[StepResult], None]
 
@@ -25,6 +26,7 @@ class PassiveRunCLIOptions:
     viewer: bool
     duration: float | None
     log_path: Path | None
+    video: VideoEncoderSettings | None
 
 
 def add_passive_run_arguments(parser: argparse.ArgumentParser) -> None:
@@ -50,6 +52,63 @@ def add_passive_run_arguments(parser: argparse.ArgumentParser) -> None:
             "until the viewer window is closed."
         ),
     )
+    parser.add_argument(
+        "--video-path",
+        type=Path,
+        default=None,
+        help=(
+            "Export an MP4 recording to this path using the template video exporter. "
+            "Omit to disable recording."
+        ),
+    )
+    parser.add_argument(
+        "--video-fps",
+        type=float,
+        default=60.0,
+        help="Video frame rate (Hz) controlling playback speed.",
+    )
+    parser.add_argument(
+        "--video-width",
+        type=int,
+        default=1280,
+        help="Video width in pixels.",
+    )
+    parser.add_argument(
+        "--video-height",
+        type=int,
+        default=720,
+        help="Video height in pixels.",
+    )
+    parser.add_argument(
+        "--video-crf",
+        type=int,
+        default=18,
+        help="x264 CRF quality target (lower values increase quality).",
+    )
+    parser.add_argument(
+        "--video-preset",
+        type=str,
+        default="medium",
+        help="FFmpeg preset governing encode speed vs quality.",
+    )
+    parser.add_argument(
+        "--video-tune",
+        type=str,
+        default=None,
+        help="Optional FFmpeg tune profile (e.g. 'animation').",
+    )
+    parser.add_argument(
+        "--video-faststart",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable MP4 faststart for web playback (default: enabled).",
+    )
+    parser.add_argument(
+        "--video-initial-frame",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Capture the initial state as the first frame (default: enabled).",
+    )
 
 
 def _options_from_namespace(namespace: argparse.Namespace) -> PassiveRunCLIOptions:
@@ -65,7 +124,41 @@ def _options_from_namespace(namespace: argparse.Namespace) -> PassiveRunCLIOptio
         log_path = Path(log_path)
 
     viewer = bool(getattr(namespace, "viewer", False))
-    return PassiveRunCLIOptions(viewer=viewer, duration=duration, log_path=log_path)
+
+    video_path = getattr(namespace, "video_path", None)
+    video_settings: VideoEncoderSettings | None = None
+    if video_path is not None:
+        if not isinstance(video_path, Path):
+            video_path = Path(video_path)
+        try:
+            fps = float(getattr(namespace, "video_fps", 60.0))
+            width = int(getattr(namespace, "video_width", 1280))
+            height = int(getattr(namespace, "video_height", 720))
+            crf = int(getattr(namespace, "video_crf", 18))
+            preset = str(getattr(namespace, "video_preset", "medium"))
+            tune = getattr(namespace, "video_tune", None)
+            faststart = bool(getattr(namespace, "video_faststart", True))
+            capture_initial = bool(getattr(namespace, "video_initial_frame", True))
+            video_settings = VideoEncoderSettings(
+                path=video_path,
+                fps=fps,
+                width=width,
+                height=height,
+                crf=crf,
+                preset=preset,
+                tune=tune,
+                faststart=faststart,
+                capture_initial_frame=capture_initial,
+            )
+        except Exception as exc:
+            raise ConfigError(f"Invalid video CLI configuration: {exc}") from exc
+
+    return PassiveRunCLIOptions(
+        viewer=viewer,
+        duration=duration,
+        log_path=log_path,
+        video=video_settings,
+    )
 
 
 def parse_passive_run_cli(
@@ -246,6 +339,34 @@ def run_passive_viewer(
     return steps
 
 
+def run_passive_video(
+    env: Env,
+    exporter: VideoExporter,
+    *,
+    duration: float | None = None,
+    max_steps: int | None = None,
+    hooks: StepHook | Iterable[StepHook] | None = None,
+) -> int:
+    """Run a headless simulation while streaming frames to an FFmpeg-backed exporter."""
+
+    if duration is not None and duration < 0:
+        raise ConfigError("duration must be >= 0 when provided.")
+    if max_steps is not None and max_steps < 1:
+        raise ConfigError("max_steps must be >= 1 when provided.")
+
+    combined_hooks = list(_normalize_hooks(hooks))
+    combined_hooks.append(exporter)
+
+    steps = 0
+    with exporter:
+        for _ in iterate_passive(
+            env, duration=duration, max_steps=max_steps, hooks=combined_hooks
+        ):
+            steps += 1
+    return steps
+
+
+
 __all__ = [
     "StepHook",
     "TrajectoryLogger",
@@ -255,4 +376,5 @@ __all__ = [
     "iterate_passive",
     "run_passive_headless",
     "run_passive_viewer",
+    "run_passive_video",
 ]

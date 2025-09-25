@@ -141,7 +141,13 @@ def run_headless(env: mt.Env, options: mt.PassiveRunCLIOptions) -> None:
     columns = _resolve_primary_columns(env.model)
 
     with mt.StateControlRecorder(env, log_path=options.log_path, probes=probes) as recorder:
-        mt.run_passive_headless(env, max_steps=max_steps, hooks=recorder)
+        hooks = [recorder]
+        if options.video is not None:
+            exporter = mt.VideoExporter(env, options.video)
+            steps = mt.run_passive_video(env, exporter, max_steps=max_steps, hooks=hooks)
+            print(f"Exported {steps} steps to {options.video.path}")
+        else:
+            mt.run_passive_headless(env, max_steps=max_steps, hooks=hooks)
         rows = list(recorder.rows)
         column_index = recorder.column_index
 

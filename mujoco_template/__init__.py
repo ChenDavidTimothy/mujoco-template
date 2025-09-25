@@ -21,6 +21,7 @@ from .model import ModelHandle
 from .observations import ObservationExtractor, ObservationSpec
 from .rollout import quick_rollout
 from .setpoints import steady_ctrl0
+from .video import VideoEncoderSettings, VideoExporter, RenderHook, CameraUpdater
 from .runtime import (
     PassiveRunCLIOptions,
     StepHook,
@@ -30,6 +31,7 @@ from .runtime import (
     parse_passive_run_cli,
     run_passive_headless,
     run_passive_viewer,
+    run_passive_video,
 )
 from .logging import DataProbe, StateControlRecorder
 from ._typing import (
@@ -102,6 +104,11 @@ __all__ = [
     "iterate_passive",
     "run_passive_headless",
     "run_passive_viewer",
+    "run_passive_video",
+    "VideoEncoderSettings",
+    "VideoExporter",
+    "RenderHook",
+    "CameraUpdater",
     "ObservationDict",
     "ObservationArray",
     "Observation",
