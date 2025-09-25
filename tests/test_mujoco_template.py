@@ -5,6 +5,9 @@ from typing import Callable, TypeVar, cast
 import numpy as np
 import mujoco as mj
 import pytest
+import mujoco_template.runtime as runtime
+import mujoco_template.logging as logging_mod
+
 from mujoco_template import (
     Observation,
     ObservationSpec,
@@ -22,6 +25,11 @@ from mujoco_template import (
     VideoEncoderSettings,
     VideoExporter,
     ZeroController,
+    PassiveRunHarness,
+    PassiveRunSettings,
+    ViewerSettings,
+    SimulationSettings,
+    PassiveRunCLIOptions,
 )
 
 BASE_XML = """
@@ -353,5 +361,100 @@ def test_run_passive_video_exports_mp4(tmp_path: Path) -> None:
     assert float(env.model.vis.global_.offheight) >= settings.height
     assert output_path.is_file()
     assert output_path.stat().st_size > 0
+
+
+def _install_dummy_recorder(monkeypatch: pytest.MonkeyPatch) -> None:
+    class DummyRecorder:
+        def __init__(self, env: object, *, log_path: Path | None, store_rows: bool, probes: tuple) -> None:
+            self.env = env
+            self.log_path = log_path
+            self.store_rows = store_rows
+            self.probes = probes
+            self.calls = 0
+
+        def __call__(self, result: object) -> None:
+            self.calls += 1
+
+        def __enter__(self) -> "DummyRecorder":
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            return False
+
+    monkeypatch.setattr(logging_mod, "StateControlRecorder", DummyRecorder)
+
+
+def test_passive_viewer_ignores_simulation_max_steps(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_dummy_recorder(monkeypatch)
+
+    captured: dict[str, object | None] = {}
+
+    def fake_viewer(
+        env: object,
+        *,
+        duration: float | None,
+        max_steps: int | None,
+        hooks: tuple,
+    ) -> int:
+        captured["duration"] = duration
+        captured["max_steps"] = max_steps
+        for hook in hooks:
+            hook(object())
+        return 7
+
+    monkeypatch.setattr(runtime, "run_passive_viewer", fake_viewer)
+
+    class DummyEnv:
+        model: object = object()
+        data: object = object()
+
+    harness = PassiveRunHarness(lambda: DummyEnv())
+    settings = PassiveRunSettings(
+        simulation=SimulationSettings(max_steps=5),
+        viewer=ViewerSettings(enabled=True, duration_seconds=None),
+    )
+
+    result = harness.run(settings)
+
+    assert captured["max_steps"] is None
+    assert captured["duration"] is None
+    assert result.steps == 7
+
+
+def test_passive_viewer_respects_duration(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_dummy_recorder(monkeypatch)
+
+    captured: dict[str, object | None] = {}
+
+    def fake_viewer(
+        env: object,
+        *,
+        duration: float | None,
+        max_steps: int | None,
+        hooks: tuple,
+    ) -> int:
+        captured["duration"] = duration
+        captured["max_steps"] = max_steps
+        return 11
+
+    monkeypatch.setattr(runtime, "run_passive_viewer", fake_viewer)
+
+    class DummyEnv:
+        model: object = object()
+        data: object = object()
+
+    harness = PassiveRunHarness(lambda: DummyEnv())
+    settings = PassiveRunSettings(
+        simulation=SimulationSettings(max_steps=5),
+        viewer=ViewerSettings(enabled=True, duration_seconds=None),
+    )
+
+    options = PassiveRunCLIOptions(viewer=False, video=False, logs=False, duration=1.5)
+
+    result = harness.run(settings, options=options)
+
+    assert captured["max_steps"] is None
+    assert captured["duration"] == pytest.approx(1.5)
+    assert result.steps == 11
 
 
