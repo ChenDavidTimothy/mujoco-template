@@ -31,7 +31,7 @@ RUN_SETTINGS = mt.PassiveRunSettings(
             widen_threshold=0.82,
             tighten_threshold=0.62,
             smoothing_time_constant=0.05,
-            recenter_axis="y",
+            recenter_axis="x,y,z",
             recenter_time_constant=0.5,
             points_of_interest=(
                 "body:x2",
@@ -47,7 +47,7 @@ TRAJECTORY = SimpleNamespace(
     start_orientation_wxyz=quat_wxyz_from_body_euler(yaw_deg=0.0),
     start_velocity_mps=(0.0, 0.0, 0.0),
     start_angular_velocity_radps=(0.0, 0.0, 0.0),
-    goal_position_m=(2.0, -4.0, 2.3),
+    goal_position_m=(5.0, -4.0, 2.3),
     goal_orientation_wxyz=quat_wxyz_from_body_euler(yaw_deg=180.0),
     goal_velocity_mps=(0.0, 0.0, 0.0),
     goal_angular_velocity_radps=(0.0, 0.0, 0.0),
