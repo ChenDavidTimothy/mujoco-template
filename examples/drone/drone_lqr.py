@@ -537,9 +537,11 @@ def summarize(result: mt.PassiveRunResult) -> None:
             )
 
     final_position = np.array(result.env.data.qpos[:3], dtype=float)
+    final_orientation = np.array(result.env.data.qpos[3:7], dtype=float)
     final_velocity = np.array(result.env.data.qvel[:3], dtype=float)
     goal_velocity = controller.goal_velocity
     goal_angular_velocity = controller.goal_angular_velocity
+    goal_orientation = controller.goal_orientation
 
     qvel_goal = controller.qvel_goal
     pos_dim = min(3, qvel_goal.size)
@@ -554,6 +556,12 @@ def summarize(result: mt.PassiveRunResult) -> None:
     print(
         "Final position [{:.3f}, {:.3f}, {:.3f}] m | target [{:.3f}, {:.3f}, {:.3f}] m".format(
             *final_position, *goal
+        )
+    )
+    print(
+        "Final orientation [{:.3f}, {:.3f}, {:.3f}, {:.3f}] wxyz | target [{:.3f}, {:.3f}, {:.3f}, {:.3f}] wxyz".format(
+            *final_orientation,
+            *goal_orientation,
         )
     )
     print(
@@ -597,6 +605,11 @@ def main(argv=None) -> None:
         "Start position [{:.2f}, {:.2f}, {:.2f}] m | duration {} steps".format(
             *np.asarray(traj_cfg.start_position_m, dtype=float),
             CONFIG.run.simulation.max_steps,
+        )
+    )
+    print(
+        "Start orientation [{:.3f}, {:.3f}, {:.3f}, {:.3f}] wxyz".format(
+            *np.asarray(traj_cfg.start_orientation_wxyz, dtype=float)
         )
     )
     print(
