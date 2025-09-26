@@ -60,11 +60,9 @@ Fail-Fast * Production Ready * v2
 What changed vs v1 (based on doc-alignment review)
 - Added subtree/body COM Jacobians: tokens `subtreecom:<body>` -> mj_jacSubtreeCom,
   `bodycom:<body>` -> mj_jacBodyCom. (Matches LQR tutorial usage.)
-- Servo-limit policy is configurable: `strict_servo_limits` (default True). When True,
-  servo spaces require valid ctrlrange on all enabled actuators; otherwise a warning.
-- Integrated-velocity awareness: optional assertion (config) that activation limits
-  (`actlimited/actrange`) exist and are sane to avoid runaway setpoints.
-- Compatibility report now carries WARNINGS in addition to FAIL reasons. Env exposes
+- Servo-limit and activation metadata gaps now produce warnings instead of stop-the-
+  world errors so researchers can proceed while still seeing the diagnostics.
+- Compatibility report carries WARNINGS in addition to FAIL reasons. Env exposes
   these via `Env.compat_warnings` and also includes them once in `StepResult.info`.
 - Kept the native-only rule: controllers write `data.ctrl` only, sim advances with
   `mj_step`. No joint-to-actuator guessing; actuator GROUPS gate compatibility.

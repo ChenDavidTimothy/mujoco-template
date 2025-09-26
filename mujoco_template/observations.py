@@ -2,30 +2,38 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+import warnings
 
 import mujoco as mj
 import numpy as np
 
-from .exceptions import ConfigError, NameLookupError, TemplateError
+from .exceptions import NameLookupError
 from ._typing import Observation, ObservationDict
 
 
 @dataclass
 class ObservationSpec:
-    """Declarative selection of observable quantities."""
+    """Declarative selection of observable quantities.
+
+    The ``copy`` flag remains available even though the default is zero-copy.
+    Some controllers or logging pipelines expect observation arrays to remain
+    valid after the next simulation step, so they can opt back into copying
+    without re-implementing extraction.
+    """
 
     include_qpos: bool = True
     include_qvel: bool = True
     include_act: bool = False
     include_ctrl: bool = False
-    include_sensordata: bool = True
-    include_time: bool = True
+    include_sensordata: bool = False
+    include_time: bool = False
     sites_pos: Sequence[str] = field(default_factory=tuple)
     bodies_pos: Sequence[str] = field(default_factory=tuple)
     geoms_pos: Sequence[str] = field(default_factory=tuple)
     subtree_com: Sequence[str] = field(default_factory=tuple)
     as_dict: bool = True
     bodies_inertial: bool = False
+    copy: bool = False
 
 
 class ObservationExtractor:
@@ -37,6 +45,10 @@ class ObservationExtractor:
         self.geom_ids = tuple(self._name2id(mj.mjtObj.mjOBJ_GEOM, n) for n in spec.geoms_pos)
         self.subtree_ids = tuple(self._name2id(mj.mjtObj.mjOBJ_BODY, n) for n in spec.subtree_com)
 
+        self._warned_missing_act = False
+        self._warned_missing_sensordata = False
+        self._warned_missing_subtree = False
+
     def _name2id(self, objtype: int, name: str) -> int:
         idx = int(mj.mj_name2id(self.model, objtype, name))
         if idx < 0:
@@ -46,19 +58,33 @@ class ObservationExtractor:
     def __call__(self, data: mj.MjData) -> Observation:
         out: ObservationDict = {}
         if self.spec.include_qpos:
-            out["qpos"] = np.array(data.qpos)
+            out["qpos"] = np.array(data.qpos, copy=self.spec.copy)
         if self.spec.include_qvel:
-            out["qvel"] = np.array(data.qvel)
+            out["qvel"] = np.array(data.qvel, copy=self.spec.copy)
         if self.spec.include_act:
             if not hasattr(data, "act"):
-                raise TemplateError("ObservationSpec requested activations but data.act is missing.")
-            out["act"] = np.array(data.act)
+                if not self._warned_missing_act:
+                    warnings.warn(
+                        "ObservationSpec requested activations but data.act is missing; returning an empty array instead.",
+                        RuntimeWarning,
+                    )
+                    self._warned_missing_act = True
+                out["act"] = np.zeros(0, dtype=float)
+            else:
+                out["act"] = np.array(data.act, copy=self.spec.copy)
         if self.spec.include_ctrl:
-            out["ctrl"] = np.array(data.ctrl)
+            out["ctrl"] = np.array(data.ctrl, copy=self.spec.copy)
         if self.spec.include_sensordata:
             if self.model.nsensordata == 0:
-                raise TemplateError("ObservationSpec requested sensordata but model has none.")
-            out["sensordata"] = np.array(data.sensordata)
+                if not self._warned_missing_sensordata:
+                    warnings.warn(
+                        "ObservationSpec requested sensordata but model has none; returning an empty array instead.",
+                        RuntimeWarning,
+                    )
+                    self._warned_missing_sensordata = True
+                out["sensordata"] = np.zeros(0, dtype=float)
+            else:
+                out["sensordata"] = np.array(data.sensordata, copy=self.spec.copy)
         if self.spec.include_time:
             out["time"] = np.array([data.time], dtype=float)
 
@@ -84,12 +110,18 @@ class ObservationExtractor:
             out["geoms_pos"] = pos
         if self.subtree_ids:
             if not hasattr(mj, "mj_subtreeCoM"):
-                raise ConfigError("ObservationSpec requested subtree_com but this MuJoCo build lacks mj_subtreeCoM().")
-            mj.mj_subtreeCoM(self.model, data)
-            pos = np.zeros((len(self.subtree_ids), 3))
-            for i, bid in enumerate(self.subtree_ids):
-                pos[i] = data.subtree_com[bid]
-            out["subtree_com"] = pos
+                if not self._warned_missing_subtree:
+                    warnings.warn(
+                        "ObservationSpec requested subtree_com but this MuJoCo build lacks mj_subtreeCoM(); skipping subtree centers of mass.",
+                        RuntimeWarning,
+                    )
+                    self._warned_missing_subtree = True
+            else:
+                mj.mj_subtreeCoM(self.model, data)
+                pos = np.zeros((len(self.subtree_ids), 3))
+                for i, bid in enumerate(self.subtree_ids):
+                    pos[i] = data.subtree_com[bid]
+                out["subtree_com"] = pos
 
         if self.spec.as_dict:
             return out

@@ -33,9 +33,6 @@ def check_controller_compat(
     model: mj.MjModel,
     ctrl_cap: ControllerCapabilities,
     enabled_mask: np.ndarray | None,
-    *,
-    strict_servo_limits: bool = True,
-    strict_intvelocity_actrange: bool = False,
 ) -> CompatibilityReport:
     reasons: list[str] = []
     warnings: list[str] = []
@@ -49,18 +46,25 @@ def check_controller_compat(
 
     if ctrl_cap.actuator_groups is not None:
         requested = set(int(g) for g in ctrl_cap.actuator_groups)
-        present = set(int(g) for g in model.actuator_group[np.flatnonzero(eff_mask)])
-        if not present:
-            reasons.append("No actuators enabled for requested groups.")
-        elif not present.issubset(requested):
-            extra = sorted(present - requested)
-            reasons.append(
-                f"Enabled actuators include groups {extra} not requested by controller."
+        enabled_groups = set(int(g) for g in model.actuator_group[np.flatnonzero(eff_mask)])
+        if not enabled_groups:
+            warnings.append(
+                "Controller declared actuator groups but none are currently enabled; continuing without additional group gating."
+            )
+        missing = sorted(requested - enabled_groups)
+        extra = sorted(enabled_groups - requested)
+        if missing:
+            warnings.append(
+                f"Controller requested actuator groups {missing} but they are not enabled; controller will still run with the available groups."
+            )
+        if extra:
+            warnings.append(
+                f"Enabled actuators include groups {extra} beyond the controller request; behaviour matches MuJoCo but may require controller-side masking."
             )
 
     if ctrl_cap.control_space in {ControlSpace.POSITION, ControlSpace.VELOCITY, ControlSpace.INTVELOCITY}:
         if not hasattr(model, "actuator_ctrlrange") or not hasattr(model, "actuator_ctrllimited"):
-            (reasons if strict_servo_limits else warnings).append(
+            warnings.append(
                 "Servo control requested but model lacks actuator_ctrlrange/ctrllimited arrays."
             )
         else:
@@ -69,13 +73,13 @@ def check_controller_compat(
             for idx in range(model.nu):
                 if eff_mask[idx]:
                     if not limited[idx]:
-                        (reasons if strict_servo_limits else warnings).append(
+                        warnings.append(
                             f"Enabled actuator {idx} lacks ctrlrange limits required for servo control."
                         )
                     else:
                         lo, hi = lim[idx]
                         if not (np.isfinite(lo) and np.isfinite(hi) and hi > lo):
-                            (reasons if strict_servo_limits else warnings).append(
+                            warnings.append(
                                 f"Invalid ctrlrange for enabled actuator {idx}: [{lo}, {hi}]"
                             )
 
@@ -86,17 +90,17 @@ def check_controller_compat(
             for idx in range(model.nu):
                 if eff_mask[idx]:
                     if not actlim[idx]:
-                        (reasons if strict_intvelocity_actrange else warnings).append(
+                        warnings.append(
                             f"Enabled actuator {idx} has no activation limits (actlimited=0) under intvelocity control."
                         )
                     elif arr is not None:
                         lo, hi = arr[idx]
                         if not (np.isfinite(lo) and np.isfinite(hi) and hi > lo):
-                            (reasons if strict_intvelocity_actrange else warnings).append(
+                            warnings.append(
                                 f"Invalid actrange for enabled actuator {idx}: [{lo}, {hi}]"
                             )
         else:
-            (reasons if strict_intvelocity_actrange else warnings).append(
+            warnings.append(
                 "intvelocity control requested but model lacks actuator_actlimited/actrange arrays."
             )
 
@@ -105,7 +109,7 @@ def check_controller_compat(
         limited_enabled = forcelimited & eff_mask
         if limited_enabled.any():
             if not hasattr(model, "actuator_forcerange"):
-                reasons.append(
+                warnings.append(
                     "Torque control requested; force-limited actuators specified but forcerange missing."
                 )
             else:
@@ -113,7 +117,9 @@ def check_controller_compat(
                 for idx in np.flatnonzero(limited_enabled):
                     lo, hi = fr[idx]
                     if not (np.isfinite(lo) and np.isfinite(hi) and hi > lo):
-                        reasons.append(f"Invalid forcerange for enabled actuator {idx}: [{lo}, {hi}]")
+                        warnings.append(
+                            f"Invalid forcerange for enabled actuator {idx}: [{lo}, {hi}]"
+                        )
 
     warnings.append(
         "Note: joint/tendon constraints or other clamps may still limit motion/force beyond actuator-level checks."

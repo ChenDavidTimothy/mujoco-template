@@ -1,9 +1,9 @@
 
-from pathlib import Path
-from typing import Callable, TypeVar, cast
-
 import math
 import shutil
+import warnings
+from pathlib import Path
+from typing import Callable, TypeVar, cast
 import numpy as np
 import mujoco as mj
 import pytest
@@ -137,6 +137,52 @@ def test_observation_extractor_dict_and_array(handle: ModelHandle) -> None:
     )
     assert obs_array.shape == (expected_len,)
 
+
+def test_observation_extractor_zero_copy_flag(handle: ModelHandle) -> None:
+    spec = ObservationSpec(include_qpos=True, include_qvel=True, copy=False)
+    extractor = ObservationExtractor(handle.model, spec)
+    obs = extractor(handle.data)
+
+    assert np.shares_memory(obs["qpos"], handle.data.qpos)
+    assert np.shares_memory(obs["qvel"], handle.data.qvel)
+
+    spec_copy = ObservationSpec(include_qpos=True, copy=True)
+    extractor_copy = ObservationExtractor(handle.model, spec_copy)
+    obs_copy = extractor_copy(handle.data)
+    assert not np.shares_memory(obs_copy["qpos"], handle.data.qpos)
+
+
+def test_observation_extractor_missing_sensors_warns_once() -> None:
+    xml_no_sensor = """
+    <mujoco model="no-sensor">
+      <worldbody>
+        <body name="torso">
+          <joint name="hinge" type="hinge" axis="0 0 1"/>
+          <geom type="capsule" fromto="0 0 0 0 0 0.1" size="0.02" density="1000"/>
+        </body>
+      </worldbody>
+      <actuator>
+        <motor joint="hinge"/>
+      </actuator>
+    </mujoco>
+    """
+    handle = ModelHandle.from_xml_string(xml_no_sensor)
+    handle.forward()
+
+    spec = ObservationSpec(include_sensordata=True)
+    extractor = ObservationExtractor(handle.model, spec)
+
+    with pytest.warns(RuntimeWarning) as record:
+        obs = extractor(handle.data)
+    assert len(record) == 1
+    assert obs["sensordata"].shape == (0,)
+
+    with warnings.catch_warnings(record=True) as later:
+        warnings.simplefilter("always", RuntimeWarning)
+        obs_again = extractor(handle.data)
+    assert obs_again["sensordata"].shape == (0,)
+    assert not later
+
 def test_model_handle_actuator_group_mask() -> None:
     handle = ModelHandle.from_xml_string(BASE_XML)
     handle.forward()
@@ -162,7 +208,6 @@ def test_check_controller_compat_group_enforcement() -> None:
         handle.model,
         caps,
         handle.enabled_actuator_mask(),
-        strict_servo_limits=True,
     )
     assert report.ok
     assert report.reasons == []
@@ -177,8 +222,8 @@ def test_check_controller_compat_group_enforcement() -> None:
         caps_bad,
         handle.enabled_actuator_mask(),
     )
-    assert not report_bad.ok
-    assert any("groups" in reason for reason in report_bad.reasons)
+    assert report_bad.ok
+    assert any("Controller requested actuator groups" in warn for warn in report_bad.warnings)
 
 def test_linearize_discrete_native_and_fd(handle: ModelHandle) -> None:
     A_native, B_native = linearize_discrete(handle.model, handle.data, use_native=True)
