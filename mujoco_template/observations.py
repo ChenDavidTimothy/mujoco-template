@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field, replace
 import warnings
 
 import mujoco as mj
@@ -34,6 +34,127 @@ class ObservationSpec:
     as_dict: bool = True
     bodies_inertial: bool = False
     copy: bool = False
+
+    @classmethod
+    def basic(
+        cls,
+        *,
+        include_time: bool = True,
+        include_ctrl: bool = False,
+        copy: bool = False,
+        as_dict: bool = True,
+    ) -> "ObservationSpec":
+        """Baseline ``qpos`` + ``qvel`` observation suitable for most controllers."""
+
+        return cls(
+            include_qpos=True,
+            include_qvel=True,
+            include_ctrl=include_ctrl,
+            include_time=include_time,
+            copy=copy,
+            as_dict=as_dict,
+        )
+
+    @classmethod
+    def full_state(
+        cls,
+        *,
+        include_ctrl: bool = True,
+        include_sensordata: bool = True,
+        include_time: bool = True,
+        copy: bool = False,
+        as_dict: bool = True,
+    ) -> "ObservationSpec":
+        """Convenience preset covering MuJoCo's canonical state signals."""
+
+        return cls(
+            include_qpos=True,
+            include_qvel=True,
+            include_ctrl=include_ctrl,
+            include_sensordata=include_sensordata,
+            include_time=include_time,
+            copy=copy,
+            as_dict=as_dict,
+        )
+
+    @classmethod
+    def from_tokens(
+        cls,
+        tokens: Iterable[str],
+        *,
+        copy: bool = False,
+        as_dict: bool = True,
+    ) -> "ObservationSpec":
+        """Create a spec from a sequence of tokens.
+
+        Supported tokens:
+
+        - ``qpos``, ``qvel``, ``ctrl``, ``act``, ``sensordata``, ``time``
+        - ``site:name``
+        - ``body:name``
+        - ``body_inertial:name``
+        - ``geom:name``
+        - ``subtree:name``
+        """
+
+        spec = cls(copy=copy, as_dict=as_dict)
+        bodies_inertial: list[str] = []
+        for token in tokens:
+            key, _, suffix = token.partition(":")
+            key = key.strip().lower()
+            suffix = suffix.strip()
+            if key == "qpos":
+                spec = replace(spec, include_qpos=True)
+            elif key == "qvel":
+                spec = replace(spec, include_qvel=True)
+            elif key == "ctrl":
+                spec = replace(spec, include_ctrl=True)
+            elif key == "act":
+                spec = replace(spec, include_act=True)
+            elif key == "sensordata":
+                spec = replace(spec, include_sensordata=True)
+            elif key == "time":
+                spec = replace(spec, include_time=True)
+            elif key == "site" and suffix:
+                spec = spec.with_sites(suffix)
+            elif key == "body" and suffix:
+                spec = spec.with_bodies(suffix)
+            elif key == "body_inertial" and suffix:
+                bodies_inertial.append(suffix)
+                spec = spec.with_bodies(suffix)
+            elif key == "geom" and suffix:
+                spec = spec.with_geoms(suffix)
+            elif key == "subtree" and suffix:
+                spec = spec.with_subtrees(suffix)
+            else:
+                raise ValueError(f"Unsupported observation token: {token!r}")
+        if bodies_inertial:
+            spec = replace(spec, bodies_inertial=True)
+        return spec
+
+    def with_sites(self, *names: str) -> "ObservationSpec":
+        return replace(self, sites_pos=tuple(self.sites_pos) + tuple(names))
+
+    def with_bodies(self, *names: str, inertial: bool | None = None) -> "ObservationSpec":
+        new_spec = replace(self, bodies_pos=tuple(self.bodies_pos) + tuple(names))
+        if inertial is None:
+            return new_spec
+        return replace(new_spec, bodies_inertial=bool(inertial))
+
+    def with_geoms(self, *names: str) -> "ObservationSpec":
+        return replace(self, geoms_pos=tuple(self.geoms_pos) + tuple(names))
+
+    def with_subtrees(self, *names: str) -> "ObservationSpec":
+        return replace(self, subtree_com=tuple(self.subtree_com) + tuple(names))
+
+    def with_time(self, enabled: bool = True) -> "ObservationSpec":
+        return replace(self, include_time=bool(enabled))
+
+    def with_ctrl(self, enabled: bool = True) -> "ObservationSpec":
+        return replace(self, include_ctrl=bool(enabled))
+
+    def as_array(self) -> "ObservationSpec":
+        return replace(self, as_dict=False)
 
 
 class ObservationExtractor:
