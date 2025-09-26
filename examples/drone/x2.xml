@@ -73,10 +73,11 @@
   </worldbody>
 
   <actuator>
+    <!-- Alternate spin directions so yaw commands do not induce roll moments. -->
     <motor class="rotor_cw" name="thrust1" site="thrust1"/>
     <motor class="rotor_ccw" name="thrust2" site="thrust2"/>
-    <motor class="rotor_ccw" name="thrust3" site="thrust3"/>
-    <motor class="rotor_cw" name="thrust4" site="thrust4"/>
+    <motor class="rotor_cw" name="thrust3" site="thrust3"/>
+    <motor class="rotor_ccw" name="thrust4" site="thrust4"/>
   </actuator>
 
   <sensor>

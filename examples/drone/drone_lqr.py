@@ -70,6 +70,8 @@ class DroneLQRController:
         self._yaw_control_scale: float = 1.0
         self._yaw_direction: np.ndarray | None = None
         self._yaw_direction_norm: float = 0.0
+        self._yaw_proportional_gain: float = 0.0
+        self._yaw_derivative_gain: float = 0.0
         self._yaw_integral_gain: float = 0.0
         self._yaw_integral_limit: float = 0.0
         self._yaw_integral: float = 0.0
@@ -180,8 +182,16 @@ class DroneLQRController:
         yaw_integral_limit = float(getattr(cfg, "yaw_integral_limit", np.inf))
         if yaw_integral_limit <= 0.0 and not np.isinf(yaw_integral_limit):
             raise mt.ConfigError("yaw_integral_limit must be positive when finite.")
+        yaw_proportional_gain = float(getattr(cfg, "yaw_proportional_gain", 0.0))
+        if yaw_proportional_gain < 0.0:
+            raise mt.ConfigError("yaw_proportional_gain must be non-negative.")
+        yaw_derivative_gain = float(getattr(cfg, "yaw_derivative_gain", 0.0))
+        if yaw_derivative_gain < 0.0:
+            raise mt.ConfigError("yaw_derivative_gain must be non-negative.")
         self._yaw_integral_gain = yaw_integral_gain
         self._yaw_integral_limit = yaw_integral_limit
+        self._yaw_proportional_gain = yaw_proportional_gain
+        self._yaw_derivative_gain = yaw_derivative_gain
         self._yaw_integral = 0.0
         if rot_dim > 0:
             yaw_idx = self._nv + pos_dim + rot_dim - 1
@@ -247,19 +257,23 @@ class DroneLQRController:
         yaw_dir = self._yaw_direction
         yaw_norm = self._yaw_direction_norm
         yaw_gain = self._yaw_integral_gain
-        if (
-            yaw_dir is not None
-            and yaw_norm > 0.0
-            and yaw_gain > 0.0
-            and self._rot_dim > 0
-        ):
+        yaw_prop = self._yaw_proportional_gain
+        yaw_deriv = self._yaw_derivative_gain
+        yaw_error = 0.0
+        yaw_rate_error = 0.0
+        if yaw_dir is not None and yaw_norm > 0.0 and self._rot_dim > 0:
             yaw_error = float(self._dx_scratch[self._pos_dim + self._rot_dim - 1])
-            dt = float(model.opt.timestep)
-            self._yaw_integral += yaw_error * dt
-            limit = self._yaw_integral_limit
-            if not np.isinf(limit):
-                self._yaw_integral = float(np.clip(self._yaw_integral, -limit, limit))
-            self._ctrl_delta += yaw_gain * self._yaw_integral * yaw_dir
+            yaw_rate_error = float(self._dx_scratch[self._nv + self._pos_dim + self._rot_dim - 1])
+            if yaw_gain > 0.0:
+                dt = float(model.opt.timestep)
+                self._yaw_integral += yaw_error * dt
+                limit = self._yaw_integral_limit
+                if not np.isinf(limit):
+                    self._yaw_integral = float(np.clip(self._yaw_integral, -limit, limit))
+                self._ctrl_delta += yaw_gain * self._yaw_integral * yaw_dir
+            if yaw_prop > 0.0 or yaw_deriv > 0.0:
+                yaw_feedback = yaw_prop * yaw_error + yaw_deriv * yaw_rate_error
+                self._ctrl_delta += yaw_feedback * yaw_dir
         if yaw_dir is not None and yaw_norm > 0.0 and self._yaw_control_scale != 1.0:
             yaw_component = float(np.dot(self._ctrl_delta, yaw_dir)) / yaw_norm
             self._ctrl_delta += (self._yaw_control_scale - 1.0) * yaw_component * yaw_dir
