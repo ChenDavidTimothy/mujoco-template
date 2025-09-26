@@ -42,6 +42,8 @@ class DroneLQRController:
         self._prepared = False
         self._nu = 0
         self._nv = 0
+        self._pos_dim = 0
+        self._rot_dim = 0
 
         self._qpos_goal: np.ndarray | None = None
         self._qpos_start: np.ndarray | None = None
@@ -61,6 +63,16 @@ class DroneLQRController:
         self._ctrl_buffer: np.ndarray | None = None
         self._ctrl_low: np.ndarray | None = None
         self._ctrl_high: np.ndarray | None = None
+        self._position_feedback_scale: np.ndarray | None = None
+        self._orientation_feedback_scale: np.ndarray | None = None
+        self._velocity_feedback_scale: np.ndarray | None = None
+        self._angular_velocity_feedback_scale: np.ndarray | None = None
+        self._yaw_control_scale: float = 1.0
+        self._yaw_direction: np.ndarray | None = None
+        self._yaw_direction_norm: float = 0.0
+        self._yaw_integral_gain: float = 0.0
+        self._yaw_integral_limit: float = 0.0
+        self._yaw_integral: float = 0.0
 
     def prepare(self, model: mt.mj.MjModel, _data: mt.mj.MjData) -> None:
         cfg = self._config
@@ -70,6 +82,10 @@ class DroneLQRController:
         self._prepared = False
         self._nu = int(model.nu)
         self._nv = int(model.nv)
+        pos_dim = min(3, self._nv)
+        rot_dim = min(3, max(0, self._nv - pos_dim))
+        self._pos_dim = pos_dim
+        self._rot_dim = rot_dim
 
         work = mt.mj.MjData(model)
         keyframe_id = self._resolve_keyframe(model, cfg.keyframe)
@@ -121,6 +137,11 @@ class DroneLQRController:
 
         P, K = self._solve_lqr_gains(A, B, Q, R)
 
+        closed_loop = A - B @ K
+        eigvals = np.linalg.eigvals(closed_loop)
+        spectral_radius = float(np.max(np.abs(eigvals)))
+        print(f"Closed-loop spectral radius: {spectral_radius:.9f}")
+
         self._qpos_goal = qpos_goal
         self._qpos_start = qpos_start
         self._qvel_goal = qvel_goal
@@ -137,6 +158,44 @@ class DroneLQRController:
         self._dx_scratch = np.zeros(2 * self._nv)
         self._ctrl_delta = np.zeros(self._nu)
         self._ctrl_buffer = np.zeros(self._nu)
+        self._position_feedback_scale = self._resolve_feedback_scale(
+            getattr(cfg, "position_feedback_scale", 1.0), pos_dim, "position feedback"
+        )
+        self._orientation_feedback_scale = self._resolve_feedback_scale(
+            getattr(cfg, "orientation_feedback_scale", 1.0), rot_dim, "orientation feedback"
+        )
+        self._velocity_feedback_scale = self._resolve_feedback_scale(
+            getattr(cfg, "velocity_feedback_scale", 1.0), pos_dim, "velocity feedback"
+        )
+        self._angular_velocity_feedback_scale = self._resolve_feedback_scale(
+            getattr(cfg, "angular_velocity_feedback_scale", 1.0), rot_dim, "angular-velocity feedback"
+        )
+        yaw_scale = float(getattr(cfg, "yaw_control_scale", 1.0))
+        if yaw_scale <= 0.0:
+            raise mt.ConfigError("yaw_control_scale must be positive.")
+        self._yaw_control_scale = yaw_scale
+        yaw_integral_gain = float(getattr(cfg, "yaw_integral_gain", 0.0))
+        if yaw_integral_gain < 0.0:
+            raise mt.ConfigError("yaw_integral_gain must be non-negative.")
+        yaw_integral_limit = float(getattr(cfg, "yaw_integral_limit", np.inf))
+        if yaw_integral_limit <= 0.0 and not np.isinf(yaw_integral_limit):
+            raise mt.ConfigError("yaw_integral_limit must be positive when finite.")
+        self._yaw_integral_gain = yaw_integral_gain
+        self._yaw_integral_limit = yaw_integral_limit
+        self._yaw_integral = 0.0
+        if rot_dim > 0:
+            yaw_idx = self._nv + pos_dim + rot_dim - 1
+            yaw_dir = B[yaw_idx, : self._nu].astype(float, copy=True)
+            yaw_norm = float(np.dot(yaw_dir, yaw_dir))
+            if yaw_norm > 0.0:
+                self._yaw_direction = yaw_dir
+                self._yaw_direction_norm = yaw_norm
+            else:
+                self._yaw_direction = None
+                self._yaw_direction_norm = 0.0
+        else:
+            self._yaw_direction = None
+            self._yaw_direction_norm = 0.0
 
         if cfg.clip_controls and hasattr(model, "actuator_ctrllimited") and hasattr(model, "actuator_ctrlrange"):
             limited = np.asarray(model.actuator_ctrllimited, dtype=bool)
@@ -166,7 +225,44 @@ class DroneLQRController:
         self._dx_scratch[: self._nv] = self._dq_scratch
         self._dx_scratch[self._nv :] = data.qvel - self._qvel_goal
 
+        pos_dim = self._pos_dim
+        rot_dim = self._rot_dim
+        assert self._position_feedback_scale is not None
+        assert self._velocity_feedback_scale is not None
+        assert self._orientation_feedback_scale is not None
+        assert self._angular_velocity_feedback_scale is not None
+
+        if pos_dim > 0:
+            self._dx_scratch[:pos_dim] *= self._position_feedback_scale
+            self._dx_scratch[self._nv : self._nv + pos_dim] *= self._velocity_feedback_scale
+        if rot_dim > 0:
+            start = pos_dim
+            stop = pos_dim + rot_dim
+            self._dx_scratch[start:stop] *= self._orientation_feedback_scale
+            vel_start = self._nv + pos_dim
+            vel_stop = vel_start + rot_dim
+            self._dx_scratch[vel_start:vel_stop] *= self._angular_velocity_feedback_scale
+
         self._ctrl_delta[:] = self._K @ self._dx_scratch
+        yaw_dir = self._yaw_direction
+        yaw_norm = self._yaw_direction_norm
+        yaw_gain = self._yaw_integral_gain
+        if (
+            yaw_dir is not None
+            and yaw_norm > 0.0
+            and yaw_gain > 0.0
+            and self._rot_dim > 0
+        ):
+            yaw_error = float(self._dx_scratch[self._pos_dim + self._rot_dim - 1])
+            dt = float(model.opt.timestep)
+            self._yaw_integral += yaw_error * dt
+            limit = self._yaw_integral_limit
+            if not np.isinf(limit):
+                self._yaw_integral = float(np.clip(self._yaw_integral, -limit, limit))
+            self._ctrl_delta += yaw_gain * self._yaw_integral * yaw_dir
+        if yaw_dir is not None and yaw_norm > 0.0 and self._yaw_control_scale != 1.0:
+            yaw_component = float(np.dot(self._ctrl_delta, yaw_dir)) / yaw_norm
+            self._ctrl_delta += (self._yaw_control_scale - 1.0) * yaw_component * yaw_dir
         self._ctrl_buffer[:] = self._ctrl0 - self._ctrl_delta
 
         if self._ctrl_low is not None and self._ctrl_high is not None:
@@ -228,15 +324,21 @@ class DroneLQRController:
         rot_dim = min(3, max(0, nv - pos_dim))
 
         if pos_dim > 0:
-            Q[:pos_dim, :pos_dim] = float(cfg.position_weight) * np.eye(pos_dim)
-            Q[nv : nv + pos_dim, nv : nv + pos_dim] = float(cfg.velocity_weight) * np.eye(pos_dim)
+            pos_diag = self._resolve_weight_diagonal(cfg.position_weight, pos_dim, "position")
+            vel_diag = self._resolve_weight_diagonal(cfg.velocity_weight, pos_dim, "velocity")
+            Q[:pos_dim, :pos_dim] = np.diag(pos_diag)
+            Q[nv : nv + pos_dim, nv : nv + pos_dim] = np.diag(vel_diag)
         if rot_dim > 0:
             start = pos_dim
             stop = pos_dim + rot_dim
-            Q[start:stop, start:stop] = float(cfg.orientation_weight) * np.eye(rot_dim)
+            ori_diag = self._resolve_weight_diagonal(cfg.orientation_weight, rot_dim, "orientation")
+            ang_diag = self._resolve_weight_diagonal(
+                cfg.angular_velocity_weight, rot_dim, "angular velocity"
+            )
+            Q[start:stop, start:stop] = np.diag(ori_diag)
             vel_start = nv + pos_dim
             vel_stop = vel_start + rot_dim
-            Q[vel_start:vel_stop, vel_start:vel_stop] = float(cfg.angular_velocity_weight) * np.eye(rot_dim)
+            Q[vel_start:vel_stop, vel_start:vel_stop] = np.diag(ang_diag)
 
         return Q
 
@@ -245,6 +347,47 @@ class DroneLQRController:
         if weight <= 0.0:
             raise mt.ConfigError("control_weight must be positive.")
         return weight * np.eye(self._nu)
+
+    @staticmethod
+    def _resolve_weight_diagonal(weight, dim: int, name: str) -> np.ndarray:
+        values = np.asarray(weight, dtype=float)
+        if values.ndim == 0:
+            values = np.full(dim, float(values))
+        else:
+            values = values.reshape(-1)
+            if values.size == 1:
+                values = np.full(dim, float(values[0]))
+            elif values.size != dim:
+                raise mt.ConfigError(
+                    f"{name.capitalize()} weight must be a scalar or length-{dim} sequence; got {values.size}."
+                )
+
+        if np.any(~np.isfinite(values)):
+            raise mt.ConfigError(f"{name.capitalize()} weights must be finite numbers.")
+        if np.any(values < 0.0):
+            raise mt.ConfigError(f"{name.capitalize()} weights must be non-negative.")
+        return values
+
+    @staticmethod
+    def _resolve_feedback_scale(scale, dim: int, name: str) -> np.ndarray:
+        if dim == 0:
+            return np.ones(0)
+        values = np.asarray(scale, dtype=float)
+        if values.ndim == 0:
+            values = np.full(dim, float(values))
+        else:
+            values = values.reshape(-1)
+            if values.size == 1:
+                values = np.full(dim, float(values[0]))
+            elif values.size != dim:
+                raise mt.ConfigError(
+                    f"{name.capitalize()} must be a scalar or length-{dim} sequence; got {values.size}."
+                )
+        if np.any(~np.isfinite(values)):
+            raise mt.ConfigError(f"{name.capitalize()} must contain finite numbers.")
+        if np.any(values <= 0.0):
+            raise mt.ConfigError(f"{name.capitalize()} must be strictly positive.")
+        return values
 
     def _solve_lqr_gains(self, A: np.ndarray, B: np.ndarray, Q: np.ndarray, R: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Solve the discrete-time algebraic Riccati equation with fallbacks.
