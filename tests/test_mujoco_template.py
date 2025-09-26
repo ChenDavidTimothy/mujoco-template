@@ -479,7 +479,6 @@ def test_adaptive_camera_recenters_multiple_axes(tmp_path: Path) -> None:
     assert camera.lookat[0] == pytest.approx(0.25)
     assert camera.lookat[2] == pytest.approx(1.0)
 
-
 def test_adaptive_camera_recenters_from_comma_string(tmp_path: Path) -> None:
     model_xml = """
     <mujoco model="camera-recenter">
@@ -513,8 +512,7 @@ def test_adaptive_camera_recenters_from_comma_string(tmp_path: Path) -> None:
     controller(camera, handle.model, data)
     assert camera.lookat[0] == pytest.approx(0.25)
     assert camera.lookat[2] == pytest.approx(1.0)
-
-
+    
 def _install_dummy_recorder(monkeypatch: pytest.MonkeyPatch) -> None:
     class DummyRecorder:
         def __init__(self, env: object, *, log_path: Path | None, store_rows: bool, probes: tuple) -> None:
