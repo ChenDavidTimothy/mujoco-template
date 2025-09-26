@@ -1,13 +1,28 @@
-"""Public package interface for mujoco_template."""
+"""Public façade for mujoco_template."""
 
 from __future__ import annotations
 
+from importlib import metadata as _metadata
+
 import mujoco as mj
 
+from ._typing import (
+    InfoDict,
+    JacobianDict,
+    JacobiansDict,
+    Observation,
+    ObservationArray,
+    ObservationDict,
+    StateSnapshot,
+)
 from .compat import CompatibilityReport, check_controller_compat
-from .control import ControlSpace, Controller, ControllerCapabilities
+from .control import (
+    ControlSpace,
+    Controller,
+    ControllerCapabilities,
+    controller_from_callable,
+)
 from .controllers import PositionTargetDemo, ZeroController
-from .env import Env, StepResult
 from .exceptions import (
     CompatibilityError,
     ConfigError,
@@ -19,63 +34,18 @@ from .jacobians import compute_requested_jacobians
 from .linearization import linearize_discrete
 from .model import ModelHandle
 from .observations import ObservationExtractor, ObservationSpec
-from .rollout import rollout
+from .session import HeadlessRunResult, SimulationSession
 from .setpoints import steady_ctrl0
-from .video import VideoEncoderSettings, VideoExporter, RenderHook, CameraUpdater
-from .runtime import (
-    AdaptiveCameraSettings,
-    LoggingSettings,
-    PassiveRunCLIOptions,
-    PassiveRunHarness,
-    PassiveRunResult,
-    PassiveRunSettings,
-    SimulationSettings,
-    StepHook,
-    TrajectoryLogger,
-    VideoSettings,
-    ViewerSettings,
-    add_passive_run_arguments,
-    iterate_passive,
-    parse_passive_run_cli,
-    run_passive_headless,
-    run_passive_viewer,
-    run_passive_video,
-)
-from .logging import DataProbe, StateControlRecorder
-from ._typing import (
-    InfoDict,
-    JacobianDict,
-    JacobiansDict,
-    Observation,
-    ObservationArray,
-    ObservationDict,
-    StateSnapshot,
-)
 
 __doc__ = """
 MuJoCo Controller-/Model-/Environment-Agnostic Template
-Fail-Fast * Production Ready * v2
+Fail-Fast * Production Ready * v3
 ---------------------------------
 
-What changed vs v1 (based on doc-alignment review)
-- Added subtree/body COM Jacobians: tokens `subtreecom:<body>` -> mj_jacSubtreeCom,
-  `bodycom:<body>` -> mj_jacBodyCom. (Matches LQR tutorial usage.)
-- Servo-limit and activation metadata gaps now produce warnings instead of stop-the-
-  world errors so researchers can proceed while still seeing the diagnostics.
-- Compatibility report carries WARNINGS in addition to FAIL reasons. Env exposes
-  these via `Env.compat_warnings` and also includes them once in `StepResult.info`.
-- Kept the native-only rule: controllers write `data.ctrl` only, sim advances with
-  `mj_step`. No joint-to-actuator guessing; actuator GROUPS gate compatibility.
-
-Key properties (unchanged)
-- Controllers can declare `capabilities.actuator_groups`; Env will enable exactly-and-
-  only those groups (or raise on conflict).
-- Capabilities-driven precompute: `(A,B)` via `mjd_transitionFD` (native-first) with
-  tangent-correct FD fallback; requested Jacobians evaluated after the controller sets
-  `u_t` and before stepping.
-- Observation layer is declarative, name-checked, and deterministic.
-
-Requires: mujoco>=2.3, numpy
+The v3 surface focuses on a single ``SimulationSession`` façade.  It loads MuJoCo
+models, applies observation presets, performs controller compatibility checks, and
+exposes high-level ``run`` helpers while keeping native ``model``/``data`` handles
+available for expert workflows.
 """
 
 __all__ = [
@@ -87,42 +57,19 @@ __all__ = [
     "ControlSpace",
     "Controller",
     "ControllerCapabilities",
+    "controller_from_callable",
     "ObservationSpec",
     "ObservationExtractor",
     "ModelHandle",
     "CompatibilityReport",
-    "StepResult",
-    "Env",
+    "SimulationSession",
+    "HeadlessRunResult",
     "ZeroController",
     "PositionTargetDemo",
     "check_controller_compat",
     "linearize_discrete",
     "compute_requested_jacobians",
     "steady_ctrl0",
-    "rollout",
-    "TrajectoryLogger",
-    "SimulationSettings",
-    "VideoSettings",
-    "AdaptiveCameraSettings",
-    "LoggingSettings",
-    "ViewerSettings",
-    "PassiveRunSettings",
-    "PassiveRunResult",
-    "PassiveRunHarness",
-    "DataProbe",
-    "StateControlRecorder",
-    "PassiveRunCLIOptions",
-    "add_passive_run_arguments",
-    "parse_passive_run_cli",
-    "StepHook",
-    "iterate_passive",
-    "run_passive_headless",
-    "run_passive_viewer",
-    "run_passive_video",
-    "VideoEncoderSettings",
-    "VideoExporter",
-    "RenderHook",
-    "CameraUpdater",
     "ObservationDict",
     "ObservationArray",
     "Observation",
@@ -133,8 +80,6 @@ __all__ = [
     "mj",
 ]
 
-from importlib import metadata as _metadata
-
 try:
     __version__ = _metadata.version("mujoco-template")
 except Exception:  # pragma: no cover
@@ -143,4 +88,3 @@ else:
     del _metadata
 
 __all__.append("__version__")
-

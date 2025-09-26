@@ -1,120 +1,50 @@
-import sys
+"""Passive pendulum swing-up demo using SimulationSession."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
 
 import numpy as np
 
 import mujoco_template as mt
-from pendulum_common import (
-    initialize_state as seed_pendulum,
-    make_env as make_pendulum_env,
-    make_tip_probes,
-    resolve_pendulum_columns,
-)
-from pendulum_config import CONFIG
+
+ASSETS = Path(__file__).resolve().parent
+MODEL_PATH = ASSETS / "pendulum.xml"
 
 
-class PendulumPDController:
-    """Simple PD torque controller that stabilizes the pendulum upright."""
-
-    def __init__(self, kp, kd, target):
-        self.capabilities = mt.ControllerCapabilities(control_space=mt.ControlSpace.TORQUE)
-        self.kp = float(kp)
-        self.kd = float(kd)
-        self.target = float(target)
-
-    def prepare(self, model, data):
-        if model.nu != 1:
-            raise mt.CompatibilityError("PendulumPDController expects a single actuator.")
-
-    def __call__(self, model, data, t):
-        angle = float(data.qpos[0])
-        velocity = float(data.qvel[0])
-        torque = -self.kp * (angle - self.target) - self.kd * velocity
-        if hasattr(model, "actuator_forcerange") and model.actuator_forcerange.size >= 2:
-            bounds = np.asarray(model.actuator_forcerange)[0]
-            torque = float(np.clip(torque, bounds[0], bounds[1]))
+def make_session(damping: float = 2.0) -> mt.SimulationSession:
+    def _controller(_model, data, _t):
+        # Simple proportional-derivative control to pull the pendulum upright.
+        theta = float(data.qpos[0])
+        theta_dot = float(data.qvel[0])
+        torque = -damping * theta_dot - 20.0 * theta
+        if hasattr(_model, "actuator_ctrlrange"):
+            low, high = _model.actuator_ctrlrange[0]
+            torque = float(np.clip(torque, low, high))
         data.ctrl[0] = torque
 
-
-def build_env():
-    ctrl_cfg = CONFIG.controller
-    controller = PendulumPDController(
-        kp=ctrl_cfg.kp,
-        kd=ctrl_cfg.kd,
-        target=np.deg2rad(ctrl_cfg.target_angle_deg),
-    )
-    obs_spec = mt.ObservationSpec(
-        include_ctrl=True,
-        include_sensordata=False,
-        include_time=True,
-        sites_pos=("tip",),
-    )
-    return make_pendulum_env(obs_spec=obs_spec, controller=controller)
-
-
-def seed_env(env):
-    init_cfg = CONFIG.initial_state
-    seed_pendulum(env, angle_deg=init_cfg.angle_deg, velocity_deg=init_cfg.velocity_deg)
-
-
-def summarize(result):
-    recorder = result.recorder
-    rows = recorder.rows
-    if not rows:
-        print(f"Viewer closed. Final simulated time: {result.env.data.time:.3f}s")
-        return
-
-    columns = resolve_pendulum_columns(result.env.model)
-    column_index = recorder.column_index
-    stride = max(1, result.settings.simulation.sample_stride)
-
-    time_idx = column_index[columns["time"]]
-    angle_idx = column_index[columns["angle"]]
-    velocity_idx = column_index[columns["velocity"]]
-    ctrl_idx = column_index[columns["ctrl"]]
-    tip_z_idx = column_index[columns["tip_z"]]
-
-    for idx in range(0, len(rows), stride):
-        row = rows[idx]
-        print(
-            "t={:5.3f}s angle={:6.2f}deg vel={:6.2f}deg/s torque={:6.3f}Nm tip_z={:6.3f}m".format(
-                float(row[time_idx]),
-                float(np.rad2deg(row[angle_idx])),
-                float(np.rad2deg(row[velocity_idx])),
-                float(row[ctrl_idx]),
-                float(row[tip_z_idx]),
-            )
-        )
-
-    times = np.array([row[time_idx] for row in rows], dtype=float)
-    tip_z = np.array([row[tip_z_idx] for row in rows], dtype=float)
-    print(f"Tip height range: {tip_z.min():.4f} m to {tip_z.max():.4f} m over {times[-1]:.3f}s")
-    print(f"Executed {result.steps} steps; final simulated time: {result.env.data.time:.3f}s")
-
-
-HARNESS = mt.PassiveRunHarness(
-    build_env,
-    description="Pendulum PD example (MuJoCo Template)",
-    seed_fn=seed_env,
-    probes=make_tip_probes,
-    start_message="Running pendulum rollout...",
-)
-
-
-def main(argv=None):
-    init_cfg = CONFIG.initial_state
-    ctrl_cfg = CONFIG.controller
-    print(
-        "Initial angle: {:.2f} deg; velocity: {:.2f} deg/s; target: {:.2f} deg".format(
-            init_cfg.angle_deg, init_cfg.velocity_deg, ctrl_cfg.target_angle_deg
-        )
+    controller = mt.controller_from_callable(_controller)
+    spec = mt.ObservationSpec.basic().with_time().with_ctrl()
+    return mt.SimulationSession.from_xml_path(
+        str(MODEL_PATH),
+        controller=controller,
+        observation=spec,
     )
 
-    result = HARNESS.run_from_cli(CONFIG.run, args=argv)
-    summarize(result)
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--seconds", type=float, default=4.0, help="Duration to simulate")
+    args = parser.parse_args(argv)
+
+    session = make_session()
+    observation = session.reset()
+    print(f"Initial angle (rad): {observation['qpos'][0]:.3f}")
+    result = session.run(duration_seconds=args.seconds, sample_stride=10)
+    angles = [float(sample.obs['qpos'][0]) for sample in result.samples]
+    print(f"Final time: {session.data.time:.3f}s | angle span: {min(angles):.2f} to {max(angles):.2f} rad")
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        sys.exit(130)
+    main()
