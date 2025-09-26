@@ -4,7 +4,7 @@ Reusable building blocks for MuJoCo-based control projects. The package keeps Mu
 
 ## Features
 - Thin `Env` wrapper that manages resets, optional controllers, reward/done/info hooks, and exposes native model/data handles.
-- Fail-fast compatibility checks that keep actuator groups, servo limits, and integrated-velocity policies consistent across controllers and models.
+- Compatibility telemetry that surfaces actuator group mismatches, servo metadata gaps, and integrated-velocity policy limits as warnings without blocking execution.
 - Declarative observation layer that validates named entities and returns either structured dicts or flattened arrays.
 - On-demand linearization and Jacobian utilities with native MuJoCo fallbacks for fast prototyping of optimal control pipelines.
 - Logging, rollout, and runtime helpers that eliminate boilerplate for headless runs, viewer sessions, and CSV trajectory capture.
@@ -26,7 +26,7 @@ pip install -e .[test]
 from mujoco_template import ModelHandle, Env, ObservationSpec, ZeroController
 
 handle = ModelHandle.from_xml_path("examples/pendulum/pendulum.xml")
-obs_spec = ObservationSpec(include_sensordata=False)
+obs_spec = ObservationSpec()
 controller = ZeroController()
 
 env = Env(handle, controller=controller, obs_spec=obs_spec)
@@ -44,7 +44,7 @@ trajectory = quick_rollout(
     "examples/cartpole/cartpole.xml",
     steps=200,
     controller=ZeroController(),
-    obs_spec=ObservationSpec(include_sensordata=False),
+    obs_spec=ObservationSpec(),
 )
 print(f"Collected {len(trajectory)} observations")
 ```
@@ -75,10 +75,10 @@ python -m mujoco_template path/to/model.xml --steps 300 --zero
 ```
 
 ## Controllers and Compatibility
-Controllers implement the `Controller` protocol (`prepare`, `__call__`, and a `ControllerCapabilities` dataclass). Capabilities advertise control space, actuator-group requirements, and whether linearizations or Jacobians are requested. `Env` consults `check_controller_compat` to ensure the model, enabled actuators, and controller expectations line up. Strictness is configurable via `strict_servo_limits` and `strict_intvelocity_actrange` flags when constructing `Env` or calling `quick_rollout`.
+Controllers implement the `Controller` protocol (`prepare`, `__call__`, and a `ControllerCapabilities` dataclass). Capabilities advertise control space, actuator-group requirements, and whether linearizations or Jacobians are requested. `Env` consults `check_controller_compat` to report on the model, enabled actuators, and controller expectations; actuator-group mismatches, servo metadata gaps, and activation/force limit quirks now produce warnings while leaving MuJoCo's native behaviour untouched. Opt into actuator disabling explicitly via `enabled_groups` when you really need it—the environment no longer changes group availability on your behalf.
 
 ## Observations
-`ObservationSpec` enumerates exactly which signals to extract (qpos, qvel, ctrl, sites, bodies, geoms, subtree COM, etc.). `ObservationExtractor` validates every named site/body and raises early if the model lacks the requested data. Set `as_dict=False` to receive a flattened `numpy` array instead of a dict.
+`ObservationSpec` enumerates exactly which signals to extract (qpos, qvel, ctrl, sites, bodies, geoms, subtree COM, etc.). `ObservationExtractor` validates every named site/body and raises early if the model lacks the requested data. Sensor streams and simulation time are opt-in, and the `copy` flag now defaults to `False` so advanced controllers receive zero-copy views of MuJoCo's state. Leave it there for throughput, or flip it to `True` when downstream code keeps observation arrays around between steps (for example, when logging raw observations asynchronously) and therefore needs stable copies. Set `as_dict=False` to receive a flattened `numpy` array instead of a dict.
 
 ## Linearization and Jacobians
 When a controller declares `needs_linearization` or `needs_jacobians`, `Env.step` precomputes discrete-time `(A, B)` matrices and requested Jacobians immediately after the controller writes controls and before advancing the simulation. Results are surfaced once per step through the `StepResult.info` dict. You can also call `env.linearize()` directly to reuse the native-or-fallback finite difference logic.

@@ -18,9 +18,6 @@ def quick_rollout(
     keyframe: int | str | None = None,
     enabled_groups: Iterable[int] | None = None,
     control_decimation: int = 1,
-    *,
-    strict_servo_limits: bool = True,
-    strict_intvelocity_actrange: bool = False,
 ) -> list[Observation]:
     if steps < 1:
         raise ConfigError("steps must be >= 1")
@@ -33,8 +30,6 @@ def quick_rollout(
         controller=controller,
         enabled_groups=enabled_groups,
         control_decimation=control_decimation,
-        strict_servo_limits=strict_servo_limits,
-        strict_intvelocity_actrange=strict_intvelocity_actrange,
     )
     env.reset(keyframe)
     trajectory: list[Observation] = []

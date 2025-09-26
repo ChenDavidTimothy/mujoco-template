@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+import warnings
 
 import mujoco as mj
 import numpy as np
@@ -9,7 +10,7 @@ import numpy as np
 from ._typing import InfoDict, Observation
 from .compat import check_controller_compat
 from .control import Controller
-from .exceptions import CompatibilityError, ConfigError, TemplateError
+from .exceptions import ConfigError, TemplateError
 from .jacobians import compute_requested_jacobians
 from .linearization import linearize_discrete
 from .model import ModelHandle
@@ -35,9 +36,6 @@ class Env:
         info_fn: Callable[[mj.MjModel, mj.MjData, Observation], dict[str, str | float | int | np.ndarray]] | None = None,
         enabled_groups: Iterable[int] | None = None,
         control_decimation: int = 1,
-        *,
-        strict_servo_limits: bool = True,
-        strict_intvelocity_actrange: bool = False,
     ):
         if control_decimation < 1:
             raise ConfigError("control_decimation must be >= 1")
@@ -51,23 +49,33 @@ class Env:
         self.done_fn = done_fn
         self.info_fn = info_fn
         self.control_decimation = int(control_decimation)
-        self.strict_servo_limits = bool(strict_servo_limits)
-        self.strict_intvelocity_actrange = bool(strict_intvelocity_actrange)
         self._substep = 0
         self._added_warnings = False
         self._compat_warnings: list[str] = []
 
-        if controller is not None and controller.capabilities.actuator_groups is not None:
-            if enabled_groups is not None:
-                required = set(int(g) for g in controller.capabilities.actuator_groups)
-                user = set(int(g) for g in enabled_groups)
-                if required != user:
-                    raise CompatibilityError(
-                        f"Controller requires groups {sorted(required)} but user requested {sorted(user)}."
-                    )
-            self.handle.set_enabled_actuator_groups(controller.capabilities.actuator_groups)
-        elif enabled_groups is not None:
-            self.handle.set_enabled_actuator_groups(enabled_groups)
+        requested_groups = (
+            tuple(int(g) for g in controller.capabilities.actuator_groups)
+            if controller is not None and controller.capabilities.actuator_groups is not None
+            else None
+        )
+
+        if enabled_groups is not None:
+            user_groups = tuple(int(g) for g in enabled_groups)
+            if requested_groups is not None and set(requested_groups) != set(user_groups):
+                msg = (
+                    "Controller declares actuator groups "
+                    f"{sorted(set(requested_groups))} but user requested {sorted(set(user_groups))}; proceeding with the user selection."
+                )
+                warnings.warn(msg, RuntimeWarning)
+                self._compat_warnings.append(msg)
+            self.handle.set_enabled_actuator_groups(user_groups)
+        elif requested_groups is not None:
+            msg = (
+                "Controller declares actuator groups "
+                f"{sorted(set(requested_groups))} but Env leaves actuator availability unchanged by default."
+            )
+            warnings.warn(msg, RuntimeWarning)
+            self._compat_warnings.append(msg)
 
         if controller is not None:
             controller.prepare(self.model, self.data)
@@ -75,8 +83,6 @@ class Env:
                 self.model,
                 controller.capabilities,
                 self.handle.enabled_actuator_mask(),
-                strict_servo_limits=self.strict_servo_limits,
-                strict_intvelocity_actrange=self.strict_intvelocity_actrange,
             )
             self._compat_warnings = list(report.warnings)
             report.assert_ok()
