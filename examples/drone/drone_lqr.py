@@ -121,6 +121,11 @@ class DroneLQRController:
 
         P, K = self._solve_lqr_gains(A, B, Q, R)
 
+        closed_loop = A - B @ K
+        eigvals = np.linalg.eigvals(closed_loop)
+        spectral_radius = float(np.max(np.abs(eigvals)))
+        print(f"Closed-loop spectral radius: {spectral_radius:.9f}")
+
         self._qpos_goal = qpos_goal
         self._qpos_start = qpos_start
         self._qvel_goal = qvel_goal
