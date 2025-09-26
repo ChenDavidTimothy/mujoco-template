@@ -8,7 +8,7 @@ from drone_common import quat_wxyz_from_body_euler
 RUN_SETTINGS = mt.PassiveRunSettings(
     simulation=mt.SimulationSettings(max_steps=4000, duration_seconds=8.0, sample_stride=80),
     video=mt.VideoSettings(
-        enabled=True,
+        enabled=False,
         path=Path("drone_lqr.mp4"),
         fps=60.0,
         width=1280,
