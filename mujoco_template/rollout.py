@@ -10,7 +10,7 @@ from .observations import ObservationSpec
 from ._typing import Observation
 
 
-def quick_rollout(
+def rollout(
     xml_path: str,
     steps: int = 1000,
     controller: Controller | None = None,
@@ -39,4 +39,4 @@ def quick_rollout(
     return trajectory
 
 
-__all__ = ["quick_rollout"]
+__all__ = ["rollout"]

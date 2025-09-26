@@ -36,11 +36,11 @@ print(f"qpos after one step: {result.obs['qpos']}")
 ```
 
 
-Prefer a shortcut rollout? Use `quick_rollout`:
+Prefer a shortcut rollout? Use `rollout`:
 ```python
-from mujoco_template import ObservationSpec, ZeroController, quick_rollout
+from mujoco_template import ObservationSpec, ZeroController, rollout
 
-trajectory = quick_rollout(
+trajectory = rollout(
     "examples/cartpole/cartpole.xml",
     steps=200,
     controller=ZeroController(),

@@ -23,7 +23,7 @@ from mujoco_template import (
     compute_requested_jacobians,
     Env,
     steady_ctrl0,
-    quick_rollout,
+    rollout,
     run_passive_video,
     VideoEncoderSettings,
     VideoExporter,
@@ -368,7 +368,7 @@ def test_steady_ctrl0_preserves_state(handle: ModelHandle) -> None:
 def test_quick_rollout_returns_observations_list(tmp_path: Path) -> None:
     xml_path = tmp_path / "model.xml"
     xml_path.write_text(BASE_XML)
-    traj = quick_rollout(
+    traj = rollout(
         str(xml_path),
         steps=3,
         controller=ZeroController(),

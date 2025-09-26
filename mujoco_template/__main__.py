@@ -4,7 +4,7 @@ import argparse
 
 from .control import Controller
 from .controllers import ZeroController
-from .rollout import quick_rollout
+from .rollout import rollout
 
 
 def main() -> None:
@@ -19,7 +19,7 @@ def main() -> None:
     args = parser.parse_args()
 
     controller: Controller | None = ZeroController() if args.zero else None
-    traj = quick_rollout(
+    traj = rollout(
         args.xml,
         steps=args.steps,
         controller=controller,
