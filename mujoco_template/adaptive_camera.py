@@ -38,7 +38,13 @@ def _safe_norm(vec: np.ndarray) -> float:
 
 @dataclass(frozen=True)
 class AdaptiveCameraSettings:
-    """Configuration bundle for the adaptive framing camera."""
+    """Configuration bundle for the adaptive framing camera.
+
+    ``recenter_axis`` may be a single axis label (``"x"``, ``"y"``, or ``"z"``),
+    any iterable of axis labels such as ``("x", "z")``, or a comma/whitespace
+    separated string like ``"x, z"``. Duplicate tokens are ignored after
+    normalisation and comparisons are case-insensitive.
+    """
 
     enabled: bool = False
     zoom_policy: str = "distance"
@@ -58,9 +64,10 @@ class AdaptiveCameraSettings:
     max_fovy: float = 80.0
     min_ortho_height: float = 0.5
     max_ortho_height: float = 25.0
-    recenter_axis: str | None = None
+    recenter_axis: str | Sequence[str] | None = None
     recenter_time_constant: float = 1.0
     points_of_interest: Sequence[str] = field(default_factory=tuple)
+    _recenter_axes: tuple[str, ...] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.zoom_policy not in {"distance", "fov", "orthographic"}:
@@ -89,12 +96,39 @@ class AdaptiveCameraSettings:
             raise ConfigError("Orthographic height bounds must be positive.")
         if self.min_ortho_height > self.max_ortho_height:
             raise ConfigError("min_ortho_height must be <= max_ortho_height.")
-        if self.recenter_axis is not None and self.recenter_axis not in {"x", "y", "z"}:
-            raise ConfigError("recenter_axis must be one of {'x', 'y', 'z'} when provided.")
+        axes_input = self.recenter_axis
+        axes: tuple[str, ...]
+        if axes_input is None:
+            axes = ()
+        else:
+            if isinstance(axes_input, str):
+                raw_axes = tuple(part for part in axes_input.replace(",", " ").split() if part)
+            else:
+                raw_axes = tuple(axes_input)
+
+            normalized: list[str] = []
+            for axis in raw_axes:
+                if not isinstance(axis, str):
+                    raise ConfigError("recenter_axis entries must be strings when provided.")
+                token = axis.strip().lower()
+                if token not in {"x", "y", "z"}:
+                    raise ConfigError(
+                        "recenter_axis values must be drawn from {'x', 'y', 'z'} when provided."
+                    )
+                normalized.append(token)
+
+            seen: set[str] = set()
+            axes = tuple(ax for ax in normalized if not (ax in seen or seen.add(ax)))
+
+        object.__setattr__(self, "_recenter_axes", axes)
         if self.recenter_time_constant < 0:
             raise ConfigError("recenter_time_constant must be >= 0.")
         if self.smoothing_time_constant < 0:
             raise ConfigError("smoothing_time_constant must be >= 0.")
+
+    @property
+    def recenter_axes(self) -> tuple[str, ...]:
+        return self._recenter_axes
 
 
 class _PointResolver:
@@ -239,7 +273,7 @@ class AdaptiveFramingController:
         self._widen_threshold = float(settings.widen_threshold)
         self._tighten_threshold = float(settings.tighten_threshold)
         self._zoom_tau = float(settings.smoothing_time_constant)
-        self._recentering_axis = settings.recenter_axis
+        self._recentering_axes = tuple({"x": 0, "y": 1, "z": 2}[axis] for axis in settings.recenter_axes)
         self._recentering_tau = float(settings.recenter_time_constant)
 
         self._original_fovy = float(model.vis.global_.fovy)
@@ -304,17 +338,17 @@ class AdaptiveFramingController:
         if points is None:
             return
 
-        if self._recentering_axis is not None:
-            axis_idx = {"x": 0, "y": 1, "z": 2}[self._recentering_axis]
-            axis_vals = points[:, axis_idx]
-            midpoint = float((axis_vals.min() + axis_vals.max()) * 0.5)
-            self._lookat_target[axis_idx] = midpoint
-            self._lookat_state[axis_idx] = _exp_smoothing(
-                self._lookat_state[axis_idx],
-                self._lookat_target[axis_idx],
-                dt,
-                self._recentering_tau,
-            )
+        if self._recentering_axes:
+            for axis_idx in self._recentering_axes:
+                axis_vals = points[:, axis_idx]
+                midpoint = float((axis_vals.min() + axis_vals.max()) * 0.5)
+                self._lookat_target[axis_idx] = midpoint
+                self._lookat_state[axis_idx] = _exp_smoothing(
+                    self._lookat_state[axis_idx],
+                    self._lookat_target[axis_idx],
+                    dt,
+                    self._recentering_tau,
+                )
 
         self._camera.lookat[:] = self._lookat_state
 
