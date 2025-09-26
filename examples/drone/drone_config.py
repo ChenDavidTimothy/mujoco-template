@@ -55,12 +55,12 @@ TRAJECTORY = SimpleNamespace(
 
 CONTROLLER = SimpleNamespace(
     keyframe="hover",
-    linearization_eps=1e-6,
+    linearization_eps=1e-5,
     position_weight=18.0,
-    orientation_weight=4.0,
+    orientation_weight=8.0,
     velocity_weight=8.0,
-    angular_velocity_weight=2.0,
-    control_weight=1.4,
+    angular_velocity_weight=6.0,
+    control_weight=2.0,
     clip_controls=True,
     goal_position_m=TRAJECTORY.goal_position_m,
     goal_orientation_wxyz=TRAJECTORY.goal_orientation_wxyz,
