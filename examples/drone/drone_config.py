@@ -47,7 +47,7 @@ TRAJECTORY = SimpleNamespace(
     start_orientation_wxyz=quat_wxyz_from_body_euler(yaw_deg=0.0),
     start_velocity_mps=(0.0, 0.0, 0.0),
     start_angular_velocity_radps=(0.0, 0.0, 0.0),
-    goal_position_m=(0.0, 0.0, 0.3),
+    goal_position_m=(3.0, 2.0, 2.3),
     goal_orientation_wxyz=quat_wxyz_from_body_euler(yaw_deg=90.0),
     goal_velocity_mps=(0.0, 0.0, 0.0),
     goal_angular_velocity_radps=(0.0, 0.0, 0.0),
