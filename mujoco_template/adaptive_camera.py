@@ -38,7 +38,13 @@ def _safe_norm(vec: np.ndarray) -> float:
 
 @dataclass(frozen=True)
 class AdaptiveCameraSettings:
-    """Configuration bundle for the adaptive framing camera."""
+    """Configuration bundle for the adaptive framing camera.
+
+    ``recenter_axis`` may be a single axis label (``"x"``, ``"y"``, or ``"z"``),
+    any iterable of axis labels such as ``("x", "z")``, or a comma/whitespace
+    separated string like ``"x, z"``. Duplicate tokens are ignored after
+    normalisation and comparisons are case-insensitive.
+    """
 
     enabled: bool = False
     zoom_policy: str = "distance"
@@ -96,7 +102,7 @@ class AdaptiveCameraSettings:
             axes = ()
         else:
             if isinstance(axes_input, str):
-                raw_axes = (axes_input,)
+                raw_axes = tuple(part for part in axes_input.replace(",", " ").split() if part)
             else:
                 raw_axes = tuple(axes_input)
 
