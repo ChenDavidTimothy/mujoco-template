@@ -1,75 +1,22 @@
-import sys
+from __future__ import annotations
 
 import numpy as np
 
 import mujoco_template as mt
-from cartpole_common import initialize_state as seed_cartpole, make_env as make_cartpole_env
-from cartpole_config import CONFIG
+
+from ..cartpole_common import initialize_state, make_env
+from ..cartpole_config import CONFIG, ExampleConfig
+from ..controllers import CartPolePIDController
 
 
-class CartPolePIDController:
-    """PID balance controller applying horizontal force to the cart."""
-
-    def __init__(
-        self,
-        *,
-        angle_kp=16.66,
-        angle_kd=4.45,
-        angle_ki=0.0,
-        position_kp=1.11,
-        position_kd=2.20,
-        integral_limit=5.0,
-    ):
-        self.capabilities = mt.ControllerCapabilities(control_space=mt.ControlSpace.TORQUE)
-        self.angle_kp = float(angle_kp)
-        self.angle_kd = float(angle_kd)
-        self.angle_ki = float(angle_ki)
-        self.position_kp = float(position_kp)
-        self.position_kd = float(position_kd)
-        self.integral_limit = float(abs(integral_limit))
-        self._integral_term = 0.0
-        self._dt = 0.0
-
-    def prepare(self, model, data):
-        if model.nu != 1:
-            raise mt.CompatibilityError("CartPolePIDController expects a single actuator driving the cart.")
-        self._integral_term = 0.0
-        self._dt = float(model.opt.timestep)
-
-    def __call__(self, model, data, t):
-        cart_x = float(data.qpos[0])
-        pole_angle = float(data.qpos[1])
-        cart_vel = float(data.qvel[0])
-        pole_ang_vel = float(data.qvel[1])
-
-        if self.angle_ki != 0.0:
-            self._integral_term += pole_angle * self._dt
-            self._integral_term = float(np.clip(self._integral_term, -self.integral_limit, self.integral_limit))
-        else:
-            self._integral_term = 0.0
-
-        force = (
-            self.position_kp * cart_x
-            + self.position_kd * cart_vel
-            + self.angle_kp * pole_angle
-            + self.angle_kd * pole_ang_vel
-            + self.angle_ki * self._integral_term
-        )
-
-        if hasattr(model, "actuator_ctrlrange") and model.actuator_ctrlrange.size >= 2:
-            low, high = model.actuator_ctrlrange[0]
-            force = float(np.clip(force, low, high))
-        data.ctrl[0] = force
-
-
-def _require_site_id(model, name):
+def _require_site_id(model: mt.mj.MjModel, name: str) -> int:
     site_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_SITE, name))
     if site_id < 0:
         raise mt.NameLookupError(f"Site not found in model: {name}")
     return site_id
 
 
-def _resolve_joint_label(model, name):
+def _resolve_joint_label(model: mt.mj.MjModel, name: str) -> str:
     joint_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_JOINT, name))
     if joint_id < 0:
         raise mt.NameLookupError(f"Joint not found in model: {name}")
@@ -77,7 +24,7 @@ def _resolve_joint_label(model, name):
     return resolved if resolved is not None else f"joint_{joint_id}"
 
 
-def _resolve_actuator_label(model, name):
+def _resolve_actuator_label(model: mt.mj.MjModel, name: str) -> str:
     actuator_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_ACTUATOR, name))
     if actuator_id < 0:
         raise mt.NameLookupError(f"Actuator not found in model: {name}")
@@ -85,7 +32,7 @@ def _resolve_actuator_label(model, name):
     return resolved if resolved is not None else f"actuator_{actuator_id}"
 
 
-def _make_tip_probes(env):
+def _make_tip_probes(env: mt.Env) -> tuple[mt.DataProbe, ...]:
     tip_id = _require_site_id(env.model, "tip")
     return (
         mt.DataProbe("tip_x_m", lambda e, _r, sid=tip_id: float(e.data.site_xpos[sid, 0])),
@@ -93,7 +40,7 @@ def _make_tip_probes(env):
     )
 
 
-def _resolve_primary_columns(model):
+def _resolve_primary_columns(model: mt.mj.MjModel) -> dict[str, str]:
     slider_label = _resolve_joint_label(model, "slider")
     hinge_label = _resolve_joint_label(model, "hinge")
     actuator_label = _resolve_actuator_label(model, "cart_force")
@@ -109,28 +56,20 @@ def _resolve_primary_columns(model):
     }
 
 
-def build_env():
-    ctrl_cfg = CONFIG.controller
-    controller = CartPolePIDController(
-        angle_kp=ctrl_cfg.angle_kp,
-        angle_kd=ctrl_cfg.angle_kd,
-        angle_ki=ctrl_cfg.angle_ki,
-        position_kp=ctrl_cfg.position_kp,
-        position_kd=ctrl_cfg.position_kd,
-        integral_limit=ctrl_cfg.integral_limit,
-    )
+def build_env(config: ExampleConfig = CONFIG) -> mt.Env:
+    controller = CartPolePIDController(config.controller)
     obs_spec = mt.ObservationSpec(
         include_ctrl=True,
         include_sensordata=False,
         include_time=True,
         sites_pos=("tip",),
     )
-    return make_cartpole_env(obs_spec=obs_spec, controller=controller)
+    return make_env(obs_spec=obs_spec, controller=controller)
 
 
-def seed_env(env):
-    seed_cfg = CONFIG.initial_state
-    seed_cartpole(
+def seed_env(env: mt.Env, config: ExampleConfig = CONFIG) -> None:
+    seed_cfg = config.initial_state
+    initialize_state(
         env,
         cart_position=seed_cfg.cart_position,
         cart_velocity=seed_cfg.cart_velocity,
@@ -139,7 +78,7 @@ def seed_env(env):
     )
 
 
-def summarize(result):
+def summarize(result: mt.PassiveRunResult) -> None:
     recorder = result.recorder
     rows = recorder.rows
     if not rows:
@@ -191,22 +130,5 @@ HARNESS = mt.PassiveRunHarness(
 )
 
 
-def main(argv=None):
-    seed_cfg = CONFIG.initial_state
-    print(
-        "Initial cart x: {:.3f} m | pole angle: {:.2f} deg | pole velocity: {:.2f} deg/s".format(
-            seed_cfg.cart_position,
-            seed_cfg.pole_angle_deg,
-            seed_cfg.pole_velocity_deg,
-        )
-    )
+__all__ = ["HARNESS", "build_env", "seed_env", "summarize"]
 
-    result = HARNESS.run_from_cli(CONFIG.run, args=argv)
-    summarize(result)
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        sys.exit(130)

@@ -1,70 +1,134 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from types import SimpleNamespace
 
 import mujoco_template as mt
 
-RUN_SETTINGS = mt.PassiveRunSettings.from_flags(
-    viewer=False,  # True opens the interactive viewer; False executes headless.
-    video=False,  # True enables encoded video export with the below parameters.
-    logging=True,  # Toggle CSV trajectory logging; False skips log generation.
-    simulation_overrides=dict(
-        max_steps=400,  # Positive integer >=1 controlling the hard stop on physics steps.
-        duration_seconds=None,  # None for unlimited wall-clock time; any positive float caps runtime in seconds.
-    ),
-    video_overrides=dict(
-        path=Path("pendulum.mp4"),  # Path/str for the exported clip (use different extensions or directories as desired).
-        fps=60.0,  # Positive float encoded frame rate.
-        width=1280,  # Positive integer pixel width.
-        height=720,  # Positive integer pixel height.
-        crf=18,  # Integer 0–51 quality knob (lower = better quality).
-        preset="medium",  # Choose from {"ultrafast","superfast","veryfast","faster","fast","medium","slow","slower","veryslow","placebo"} to trade speed vs. compression.
-        tune=None,  # Optional libx264 tune: "film","animation","grain","psnr","ssim","fastdecode","zerolatency"; None uses defaults.
-        faststart=True,  # True optimises MP4 for streaming; False avoids the extra mux step.
-        capture_initial_frame=True,  # True writes the t=0 frame; False starts after the first physics step.
-        adaptive_camera=mt.AdaptiveCameraSettings(
-            enabled=True,  # True enables adaptive framing; False leaves the camera fixed.
-            zoom_policy="distance",  # Select "distance", "fov", or "orthographic" to set zoom mode.
-            azimuth=90.0,  # Float yaw angle in degrees.
-            elevation=-20.0,  # Float pitch angle in degrees.
-            distance=2.5,  # Positive float radius when zooming by distance.
-            fovy=None,  # Positive float FOV (degrees) when using "fov" policy; None defers to defaults.
-            ortho_height=None,  # Positive float orthographic window height; None keeps runtime default.
-            lookat=(0.0, 0.0, -0.25),  # Iterable of 3 floats specifying the world-space target.
-            safety_margin=0.08,  # Non-negative float padding multiplier around tracked points.
-            widen_threshold=0.8,  # Float in (0,1) that triggers zoom-out.
-            tighten_threshold=0.6,  # Float in (0,1) < widen_threshold triggering zoom-in.
-            smoothing_time_constant=0.18,  # Non-negative float seconds controlling responsiveness.
-            min_distance=1.5,  # Positive float lower bound for distance zoom.
-            max_distance=4.5,  # Positive float >= min_distance for maximum pull-back.
-            min_fovy=20.0,  # Positive float lower FOV bound when zooming by FOV.
-            max_fovy=80.0,  # Positive float >= min_fovy for maximum FOV.
-            min_ortho_height=0.5,  # Positive float minimum orthographic extent.
-            max_ortho_height=25.0,  # Positive float >= min_ortho_height for maximum orthographic extent.
-            recenter_axis="x",  # None disables recentering; otherwise choose axes from {"x","y","z"} via string or iterable.
-            recenter_time_constant=0.9,  # Non-negative float seconds smoothing recenter motions.
-            points_of_interest=("body:arm", "site:tip"),  # Sequence of tokens ("body:","site:","geom:","bodycom:","subtreecom:") the camera follows.
-        ),
-    ),
-    viewer_overrides=dict(
-        duration_seconds=5.0,  # None keeps viewer open; positive float auto-exits after that many seconds.
-    ),
-    logging_overrides=dict(
-        path=Path("pendulum.csv"),  # Path/str destination for logs; adjust extension for alternative formats.
-        store_rows=True,  # True records every stored step row; False retains only aggregates.
-    ),
-)
 
-INITIAL_STATE = SimpleNamespace(
-    angle_deg=60.0,  # Any float degrees offset from upright (positive counter-clockwise).
-    velocity_deg=0.0,  # Float deg/s initial angular velocity.
-)
+@dataclass(slots=True)
+class SimulationOverridesConfig:
+    """Physics loop termination settings for the controlled pendulum."""
 
-CONTROLLER = SimpleNamespace(
-    kp=20.0,  # Non-negative proportional gain on angle error.
-    kd=4.0,  # Non-negative derivative gain on angular velocity.
-    target_angle_deg=0.0,  # Float degrees specifying the desired equilibrium (e.g. 180 for inverted).
-)
+    max_steps: int = 400
+    duration_seconds: float | None = None
 
-CONFIG = SimpleNamespace(run=RUN_SETTINGS, initial_state=INITIAL_STATE, controller=CONTROLLER)
 
-__all__ = ["CONFIG", "RUN_SETTINGS", "INITIAL_STATE", "CONTROLLER"]
+@dataclass(slots=True)
+class VideoOverridesConfig:
+    """Encoded video parameters for the PD-controlled pendulum."""
+
+    path: Path = Path("pendulum.mp4")
+    fps: float = 60.0
+    width: int = 1280
+    height: int = 720
+    crf: int = 18
+    preset: str = "medium"
+    tune: str | None = None
+    faststart: bool = True
+    capture_initial_frame: bool = True
+    adaptive_camera: mt.AdaptiveCameraSettings = field(
+        default_factory=lambda: mt.AdaptiveCameraSettings(
+            enabled=True,
+            zoom_policy="distance",
+            azimuth=90.0,
+            elevation=-20.0,
+            distance=2.5,
+            fovy=None,
+            ortho_height=None,
+            lookat=(0.0, 0.0, -0.25),
+            safety_margin=0.08,
+            widen_threshold=0.8,
+            tighten_threshold=0.6,
+            smoothing_time_constant=0.18,
+            min_distance=1.5,
+            max_distance=4.5,
+            min_fovy=20.0,
+            max_fovy=80.0,
+            min_ortho_height=0.5,
+            max_ortho_height=25.0,
+            recenter_axis="x",
+            recenter_time_constant=0.9,
+            points_of_interest=("body:arm", "site:tip"),
+        )
+    )
+
+
+@dataclass(slots=True)
+class ViewerOverridesConfig:
+    """Interactive viewer behaviour."""
+
+    duration_seconds: float | None = 5.0
+
+
+@dataclass(slots=True)
+class LoggingOverridesConfig:
+    """Per-run logging configuration."""
+
+    path: Path = Path("pendulum.csv")
+    store_rows: bool = True
+
+
+@dataclass(slots=True)
+class RunSettingsConfig:
+    """Switches and overrides for the PD pendulum harness."""
+
+    viewer: bool = False
+    video: bool = False
+    logging: bool = True
+    simulation: SimulationOverridesConfig = field(default_factory=SimulationOverridesConfig)
+    video_output: VideoOverridesConfig = field(default_factory=VideoOverridesConfig)
+    viewer_settings: ViewerOverridesConfig = field(default_factory=ViewerOverridesConfig)
+    logging_settings: LoggingOverridesConfig = field(default_factory=LoggingOverridesConfig)
+
+    def build(self) -> mt.PassiveRunSettings:
+        return mt.PassiveRunSettings.from_flags(
+            viewer=self.viewer,
+            video=self.video,
+            logging=self.logging,
+            simulation_overrides=asdict(self.simulation),
+            video_overrides={**asdict(self.video_output), "adaptive_camera": self.video_output.adaptive_camera},
+            viewer_overrides=asdict(self.viewer_settings),
+            logging_overrides=asdict(self.logging_settings),
+        )
+
+
+@dataclass(slots=True)
+class InitialStateConfig:
+    """Initial pendulum pose in degrees."""
+
+    angle_deg: float = 60.0
+    velocity_deg: float = 0.0
+
+
+@dataclass(slots=True)
+class ControllerConfig:
+    """PD gains and target for the upright pendulum."""
+
+    kp: float = 20.0
+    kd: float = 4.0
+    target_angle_deg: float = 0.0
+
+
+@dataclass(slots=True)
+class ExampleConfig:
+    """Aggregated configuration for the controlled pendulum example."""
+
+    run: RunSettingsConfig = field(default_factory=RunSettingsConfig)
+    initial_state: InitialStateConfig = field(default_factory=InitialStateConfig)
+    controller: ControllerConfig = field(default_factory=ControllerConfig)
+
+
+CONFIG = ExampleConfig()
+
+__all__ = [
+    "CONFIG",
+    "ControllerConfig",
+    "ExampleConfig",
+    "InitialStateConfig",
+    "LoggingOverridesConfig",
+    "RunSettingsConfig",
+    "SimulationOverridesConfig",
+    "VideoOverridesConfig",
+    "ViewerOverridesConfig",
+]
