@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 
 import mujoco_template as mt
 
 from ..controllers import DroneLQRController
 from ..drone_common import make_env, make_navigation_probes
-from ..drone_config import CONFIG, ExampleConfig
+from ..drone_config import CONFIG
 
 
 def _require_lqr_controller(controller: mt.Controller) -> DroneLQRController:
@@ -15,7 +17,7 @@ def _require_lqr_controller(controller: mt.Controller) -> DroneLQRController:
     return controller
 
 
-def build_env(config: ExampleConfig = CONFIG) -> mt.Env:
+def build_env(config: SimpleNamespace = CONFIG) -> mt.Env:
     ctrl_cfg = config.controller
     traj_cfg = config.trajectory
     controller = DroneLQRController(
@@ -29,7 +31,7 @@ def build_env(config: ExampleConfig = CONFIG) -> mt.Env:
     return make_env(obs_spec=obs_spec, controller=controller)
 
 
-def seed_env(env: mt.Env, config: ExampleConfig = CONFIG) -> None:
+def seed_env(env: mt.Env, config: SimpleNamespace = CONFIG) -> None:
     del config  # Configuration is baked into the controller during build_env.
     env.reset()
     controller = _require_lqr_controller(env.controller)

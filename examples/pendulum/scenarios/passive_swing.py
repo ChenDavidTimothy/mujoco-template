@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 
 import mujoco_template as mt
 
 from ..pendulum_common import make_env, make_tip_probes, resolve_pendulum_columns
 from ..pendulum_common import initialize_state as seed_pendulum
-from ..pendulum_passive_config import CONFIG, ExampleConfig
+from ..pendulum_passive_config import CONFIG
 
 
-def build_env(config: ExampleConfig = CONFIG) -> mt.Env:
+def build_env(config: SimpleNamespace = CONFIG) -> mt.Env:
     del config  # Passive scenario uses the default configuration baked into the harness.
     obs_spec = mt.ObservationSpec(
         include_ctrl=False,
@@ -20,7 +22,7 @@ def build_env(config: ExampleConfig = CONFIG) -> mt.Env:
     return make_env(obs_spec=obs_spec)
 
 
-def seed_env(env: mt.Env, config: ExampleConfig = CONFIG) -> None:
+def seed_env(env: mt.Env, config: SimpleNamespace = CONFIG) -> None:
     init_cfg = config.initial_state
     seed_pendulum(env, angle_deg=init_cfg.angle_deg, velocity_deg=init_cfg.velocity_deg)
 

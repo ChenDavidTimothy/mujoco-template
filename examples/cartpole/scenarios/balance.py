@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 
 import mujoco_template as mt
 
 from ..cartpole_common import initialize_state, make_env
-from ..cartpole_config import CONFIG, ExampleConfig
+from ..cartpole_config import CONFIG
 from ..controllers import CartPolePIDController
 
 
@@ -56,7 +58,7 @@ def _resolve_primary_columns(model: mt.mj.MjModel) -> dict[str, str]:
     }
 
 
-def build_env(config: ExampleConfig = CONFIG) -> mt.Env:
+def build_env(config: SimpleNamespace = CONFIG) -> mt.Env:
     controller = CartPolePIDController(config.controller)
     obs_spec = mt.ObservationSpec(
         include_ctrl=True,
@@ -67,7 +69,7 @@ def build_env(config: ExampleConfig = CONFIG) -> mt.Env:
     return make_env(obs_spec=obs_spec, controller=controller)
 
 
-def seed_env(env: mt.Env, config: ExampleConfig = CONFIG) -> None:
+def seed_env(env: mt.Env, config: SimpleNamespace = CONFIG) -> None:
     seed_cfg = config.initial_state
     initialize_state(
         env,

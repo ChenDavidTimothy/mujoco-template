@@ -1,167 +1,101 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Iterable, Tuple
+from types import SimpleNamespace
 
 import mujoco_template as mt
 
-from .drone_common import quat_wxyz_from_body_euler
+try:  # Support both package and script execution styles.
+    from .drone_common import quat_wxyz_from_body_euler
+except ImportError:  # pragma: no cover - fallback for `python examples/drone/run_lqr.py`
+    from drone_common import quat_wxyz_from_body_euler  # type: ignore
 
+RUN_SETTINGS = mt.PassiveRunSettings.from_flags(
+    viewer=False,  # True launches the interactive viewer; False runs headless.
+    video=False,  # True enables encoded video export with the below parameters.
+    logging=True,  # Toggle per-step CSV logging; set False when logs are unnecessary.
+    simulation_overrides=dict(
+        max_steps=4000,  # Positive integer >=1; bump upward for longer flights before forced stop.
+        duration_seconds=8.0,  # Either None for unlimited wall-clock time or any positive float seconds cap.
+    ),
+    video_overrides=dict(
+        path=Path("drone_lqr.mp4"),  # Any Path/str target (e.g. "outputs/run1.mp4" or alternate container extensions).
+        fps=60.0,  # Positive float output frame rate; raise for slow motion capture, lower to shrink files.
+        width=1280,  # Positive integer pixel width; 1920 or 3840 for HD/UHD, etc.
+        height=720,  # Positive integer pixel height controlling vertical resolution.
+        crf=20,  # Integer 0–51 (libx264 quality); lower improves fidelity, higher boosts compression.
+        preset="medium",  # One of {"ultrafast","superfast","veryfast","faster","fast","medium","slow","slower","veryslow","placebo"}.
+        tune=None,  # Optional libx264 tune such as "film","animation","grain","psnr","ssim","fastdecode","zerolatency"; None for default heuristics.
+        faststart=True,  # True relocates metadata for streaming; False leaves the MP4 optimized for local playback only.
+        capture_initial_frame=True,  # True saves the pre-step frame; False starts after the first step is applied.
+        adaptive_camera=mt.AdaptiveCameraSettings(
+            enabled=True,  # True activates adaptive framing; False keeps a fixed viewpoint.
+            zoom_policy="distance",  # Select from {"distance","fov","orthographic"} depending on zoom semantics.
+            azimuth=120.0,  # Float degrees yaw orientation (wraps modulo 360).
+            elevation=-15.0,  # Float degrees pitch; [-90, 90] covers nadir-to-zenith.
+            distance=4.0,  # Positive float radius when zooming by distance.
+            fovy=None,  # Positive float FOV (degrees) when using "fov" policy; None keeps default.
+            ortho_height=None,  # Positive float extent for orthographic policy; None defers to runtime default.
+            lookat=(0.0, 0.0, 1.0),  # 3-float iterable world target; retarget to another body/site token.
+            safety_margin=0.2,  # Non-negative float padding multiplier to keep extra space around subjects.
+            widen_threshold=0.82,  # Float in (0,1) controlling zoom-out hysteresis.
+            tighten_threshold=0.62,  # Float in (0,1) strictly less than widen_threshold to trigger zoom-in.
+            smoothing_time_constant=0.05,  # Non-negative float seconds; bigger -> smoother, smaller -> more responsive.
+            min_distance=4.0,  # Positive float lower distance bound.
+            max_distance=14.0,  # Positive float >= min_distance controlling farthest pull-back.
+            min_fovy=20.0,  # Positive float lower FOV bound.
+            max_fovy=80.0,  # Positive float >= min_fovy for maximum wide angle.
+            min_ortho_height=0.5,  # Positive float lower orthographic bound.
+            max_ortho_height=25.0,  # Positive float >= min_ortho_height for widest ortho window.
+            recenter_axis="x,y,z",  # Provide None to disable; otherwise string/iterable combination of axes from {"x","y","z"}.
+            recenter_time_constant=0.5,  # Non-negative float seconds for recenter smoothing.
+            points_of_interest=("body:x2",),  # Sequence of tokens ("body:","site:","geom:","bodycom:","subtreecom:") naming items to track.
+        ),
+    ),
+    viewer_overrides=dict(
+        duration_seconds=10.0,  # None leaves the viewer open; any positive float auto-closes after that wall-clock time.
+    ),
+    logging_overrides=dict(
+        path=Path("drone_lqr.csv"),  # Path/str destination for CSV logs; change extension for different formats.
+        store_rows=True,  # True writes per-step rows; False keeps only aggregates to shrink disk usage.
+    ),
+)
 
-@dataclass(slots=True)
-class SimulationOverridesConfig:
-    """Simulation loop termination caps."""
+TRAJECTORY = SimpleNamespace(
+    start_position_m=(0.0, 0.0, 0.7),  # Tuple of floats metres; change to reposition the drone at t=0.
+    start_orientation_wxyz=quat_wxyz_from_body_euler(yaw_deg=0.0),  # Unit quaternion (w,x,y,z) start attitude; any valid orientation.
+    start_velocity_mps=(0.0, 0.0, 0.0),  # Tuple floats m/s initial linear velocity.
+    start_angular_velocity_radps=(0.0, 0.0, 0.0),  # Tuple floats rad/s initial angular rates.
+    goal_position_m=(5.0, -4.0, 2.3),  # Tuple floats metres specifying terminal position target.
+    goal_orientation_wxyz=quat_wxyz_from_body_euler(yaw_deg=180.0),  # Unit quaternion goal attitude.
+    goal_velocity_mps=(0.0, 0.0, 0.0),  # Desired final linear velocity vector in m/s.
+    goal_angular_velocity_radps=(0.0, 0.0, 0.0),  # Desired final angular velocity in rad/s.
+)
 
-    max_steps: int = 4000
-    duration_seconds: float | None = 8.0
+CONTROLLER = SimpleNamespace(
+    keyframe="hover",  # Name of a MuJoCo keyframe to linearise about; choose any defined keyframe label.
+    linearization_eps=1e-4,  # Positive float perturbation size for finite differences; shrink for higher fidelity.
+    position_weight=(10.0, 10.0, 10.0),  # Tuple of non-negative weights on xyz position error in the LQR cost.
+    orientation_weight=(10.0, 10.0, 20.0),  # Tuple of non-negative weights for orientation error components.
+    velocity_weight=(8.0, 8.0, 6.0),  # Tuple of non-negative weights on linear velocity error.
+    angular_velocity_weight=(6.0, 6.0, 10.0),  # Tuple of non-negative weights on angular velocity error.
+    control_weight=2.0,  # Non-negative scalar penalising control effort.
+    yaw_control_scale=6.0,  # Positive scalar multiplier for yaw commands.
+    yaw_proportional_gain=18.0,  # Non-negative P gain for the yaw outer loop.
+    yaw_derivative_gain=4.5,  # Non-negative D gain for yaw damping.
+    yaw_integral_gain=4.0,  # Non-negative I gain; zero disables integral action.
+    yaw_integral_limit=6.0,  # Positive clamp magnitude to prevent yaw integral windup.
+    clip_controls=True,  # Boolean: True enforces actuator saturation, False allows unconstrained commands.
+    position_feedback_scale=1.0,  # Scalar or iterable scaling translational feedback terms.
+    orientation_feedback_scale=1.0,  # Scalar or iterable scaling rotational feedback terms.
+    velocity_feedback_scale=1.0,  # Scalar or iterable scaling linear-velocity feedback.
+    angular_velocity_feedback_scale=1.0,  # Scalar or iterable scaling angular-velocity feedback.
+    goal_position_m=TRAJECTORY.goal_position_m,  # Reference position tuple; override to chase a new target.
+    goal_orientation_wxyz=TRAJECTORY.goal_orientation_wxyz,  # Reference orientation quaternion for the controller.
+    goal_velocity_mps=TRAJECTORY.goal_velocity_mps,  # Reference terminal linear velocity vector.
+    goal_angular_velocity_radps=TRAJECTORY.goal_angular_velocity_radps,  # Reference terminal angular velocity vector.
+)
 
+CONFIG = SimpleNamespace(run=RUN_SETTINGS, trajectory=TRAJECTORY, controller=CONTROLLER)
 
-@dataclass(slots=True)
-class VideoOverridesConfig:
-    """Parameters controlling encoded video output."""
-
-    path: Path = Path("drone_lqr.mp4")
-    fps: float = 60.0
-    width: int = 1280
-    height: int = 720
-    crf: int = 20
-    preset: str = "medium"
-    tune: str | None = None
-    faststart: bool = True
-    capture_initial_frame: bool = True
-    adaptive_camera: mt.AdaptiveCameraSettings = field(
-        default_factory=lambda: mt.AdaptiveCameraSettings(
-            enabled=True,
-            zoom_policy="distance",
-            azimuth=120.0,
-            elevation=-15.0,
-            distance=4.0,
-            fovy=None,
-            ortho_height=None,
-            lookat=(0.0, 0.0, 1.0),
-            safety_margin=0.2,
-            widen_threshold=0.82,
-            tighten_threshold=0.62,
-            smoothing_time_constant=0.05,
-            min_distance=4.0,
-            max_distance=14.0,
-            min_fovy=20.0,
-            max_fovy=80.0,
-            min_ortho_height=0.5,
-            max_ortho_height=25.0,
-            recenter_axis="x,y,z",
-            recenter_time_constant=0.5,
-            points_of_interest=("body:x2",),
-        )
-    )
-
-
-@dataclass(slots=True)
-class ViewerOverridesConfig:
-    """Interactive viewer lifetime configuration."""
-
-    duration_seconds: float | None = 10.0
-
-
-@dataclass(slots=True)
-class LoggingOverridesConfig:
-    """CSV logging destinations and retention."""
-
-    path: Path = Path("drone_lqr.csv")
-    store_rows: bool = True
-
-
-@dataclass(slots=True)
-class RunSettingsConfig:
-    """Top-level runtime switches shown to end users."""
-
-    viewer: bool = False
-    video: bool = False
-    logging: bool = True
-    simulation: SimulationOverridesConfig = field(default_factory=SimulationOverridesConfig)
-    video_output: VideoOverridesConfig = field(default_factory=VideoOverridesConfig)
-    viewer_settings: ViewerOverridesConfig = field(default_factory=ViewerOverridesConfig)
-    logging_settings: LoggingOverridesConfig = field(default_factory=LoggingOverridesConfig)
-
-    def build(self) -> mt.PassiveRunSettings:
-        """Materialise a :class:`~mujoco_template.PassiveRunSettings`."""
-
-        return mt.PassiveRunSettings.from_flags(
-            viewer=self.viewer,
-            video=self.video,
-            logging=self.logging,
-            simulation_overrides=asdict(self.simulation),
-            video_overrides={**asdict(self.video_output), "adaptive_camera": self.video_output.adaptive_camera},
-            viewer_overrides=asdict(self.viewer_settings),
-            logging_overrides=asdict(self.logging_settings),
-        )
-
-
-@dataclass(slots=True)
-class TrajectoryConfig:
-    """Complete specification of the initial and goal state."""
-
-    start_position_m: Tuple[float, float, float] = (0.0, 0.0, 0.7)
-    start_orientation_wxyz: Tuple[float, float, float, float] = quat_wxyz_from_body_euler(yaw_deg=0.0)
-    start_velocity_mps: Tuple[float, float, float] = (0.0, 0.0, 0.0)
-    start_angular_velocity_radps: Tuple[float, float, float] = (0.0, 0.0, 0.0)
-    goal_position_m: Tuple[float, float, float] = (5.0, -4.0, 2.3)
-    goal_orientation_wxyz: Tuple[float, float, float, float] = quat_wxyz_from_body_euler(yaw_deg=180.0)
-    goal_velocity_mps: Tuple[float, float, float] = (0.0, 0.0, 0.0)
-    goal_angular_velocity_radps: Tuple[float, float, float] = (0.0, 0.0, 0.0)
-
-
-@dataclass(slots=True)
-class ControllerConfig:
-    """LQR cost weights and yaw loop shaping."""
-
-    keyframe: str | int = "hover"
-    linearization_eps: float = 1e-4
-    position_weight: Tuple[float, float, float] = (10.0, 10.0, 10.0)
-    orientation_weight: Tuple[float, float, float] = (10.0, 10.0, 20.0)
-    velocity_weight: Tuple[float, float, float] = (8.0, 8.0, 6.0)
-    angular_velocity_weight: Tuple[float, float, float] = (6.0, 6.0, 10.0)
-    control_weight: float = 2.0
-    yaw_control_scale: float = 6.0
-    yaw_proportional_gain: float = 18.0
-    yaw_derivative_gain: float = 4.5
-    yaw_integral_gain: float = 4.0
-    yaw_integral_limit: float = 6.0
-    clip_controls: bool = True
-    position_feedback_scale: float | Iterable[float] = 1.0
-    orientation_feedback_scale: float | Iterable[float] = 1.0
-    velocity_feedback_scale: float | Iterable[float] = 1.0
-    angular_velocity_feedback_scale: float | Iterable[float] = 1.0
-    goal_position_m: Tuple[float, float, float] = field(default_factory=lambda: TrajectoryConfig().goal_position_m)
-    goal_orientation_wxyz: Tuple[float, float, float, float] = field(
-        default_factory=lambda: TrajectoryConfig().goal_orientation_wxyz
-    )
-    goal_velocity_mps: Tuple[float, float, float] = field(default_factory=lambda: TrajectoryConfig().goal_velocity_mps)
-    goal_angular_velocity_radps: Tuple[float, float, float] = field(
-        default_factory=lambda: TrajectoryConfig().goal_angular_velocity_radps
-    )
-
-
-@dataclass(slots=True)
-class ExampleConfig:
-    """Aggregated configuration for the drone LQR scenario."""
-
-    run: RunSettingsConfig = field(default_factory=RunSettingsConfig)
-    trajectory: TrajectoryConfig = field(default_factory=TrajectoryConfig)
-    controller: ControllerConfig = field(default_factory=ControllerConfig)
-
-
-CONFIG = ExampleConfig()
-
-__all__ = [
-    "CONFIG",
-    "ControllerConfig",
-    "ExampleConfig",
-    "LoggingOverridesConfig",
-    "RunSettingsConfig",
-    "SimulationOverridesConfig",
-    "TrajectoryConfig",
-    "VideoOverridesConfig",
-    "ViewerOverridesConfig",
-]
+__all__ = ["CONFIG", "RUN_SETTINGS", "TRAJECTORY", "CONTROLLER"]
