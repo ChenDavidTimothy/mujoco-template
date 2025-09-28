@@ -1,13 +1,18 @@
 # MuJoCo Template
 
-Reusable building blocks for MuJoCo-based control projects. The package keeps MuJoCo's native `mj.MjModel`/`mj.MjData` front-and-center while bundling the repetitive plumbing needed to spin up controllers, enforce actuator compatibility, log trajectories, and extract observations.
+Research-grade plumbing for MuJoCo-based control projects. The package keeps MuJoCo's native `mj.MjModel`/`mj.MjData` front-and-center so advanced users can interact with MuJoCo exactly as they would in a hand-written experiment, while bundling the telemetry, logging, runtime harnesses, and video tooling that repeatedly surface in publication-quality workflows.
 
 ## Features
 - Thin `Env` wrapper that manages resets, optional controllers, reward/done/info hooks, and exposes native model/data handles.
 - Compatibility telemetry that surfaces actuator group mismatches, servo metadata gaps, and integrated-velocity policy limits as warnings without blocking execution.
 - Declarative observation layer that validates named entities and returns either structured dicts or flattened arrays.
 - On-demand linearization and Jacobian utilities with native MuJoCo fallbacks for fast prototyping of optimal control pipelines.
-- Logging and runtime helpers that eliminate boilerplate for headless runs, viewer sessions, and CSV trajectory capture.
+- Logging, telemetry, and runtime helpers that eliminate boilerplate for headless runs, viewer sessions, and CSV trajectory capture, while staying opt-in so low-level users can bypass them entirely.
+
+## Design Principles
+- **Expose native MuJoCo first.** `Env` never hides the underlying `model`/`data` handles, so existing control code keeps working and research teams can drop into MuJoCo's APIs whenever they need finer-grained control.
+- **Bundle the recurring infrastructure.** High-friction systems—controller compatibility checks, passive-run harnesses, adaptive video capture, and structured trajectory logging—ship in the box so researchers do not have to rebuild the same scaffolding for each project.
+- **Keep helpers optional.** Every subsystem (logging, video export, probes, linearizations) is opt-in and activated through explicit settings, letting minimal experiments stay lightweight while richer studies gain turnkey instrumentation.
 
 ## Installation
 ```bash
