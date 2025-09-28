@@ -6,12 +6,6 @@ import mujoco_template as mt
 
 PENDULUM_XML = Path(__file__).with_name("pendulum.xml")
 
-import numpy as np
-
-import mujoco_template as mt
-
-PENDULUM_XML = Path(__file__).with_name("pendulum.xml")
-
 
 def make_env(*, obs_spec, controller=None, **env_kwargs):
     """Construct an Env for the pendulum using the given observation spec and controller."""
