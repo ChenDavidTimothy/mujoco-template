@@ -36,15 +36,12 @@ def summarize(result):
 
     columns = resolve_pendulum_columns(result.env.model)
     column_index = recorder.column_index
-    stride = max(1, result.settings.simulation.sample_stride)
-
     time_idx = column_index[columns["time"]]
     angle_idx = column_index[columns["angle"]]
     velocity_idx = column_index[columns["velocity"]]
     tip_z_idx = column_index[columns["tip_z"]]
 
-    for idx in range(0, len(rows), stride):
-        row = rows[idx]
+    for row in rows:
         print(
             f"t={row[time_idx]:5.3f}s angle={np.rad2deg(row[angle_idx]):6.2f}deg "
             f"vel={np.rad2deg(row[velocity_idx]):6.2f}deg/s tip_z={row[tip_z_idx]:6.3f}m"

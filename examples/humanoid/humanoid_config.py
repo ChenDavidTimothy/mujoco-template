@@ -10,7 +10,6 @@ RUN_SETTINGS = mt.PassiveRunSettings.from_flags(
     simulation_overrides=dict(
         max_steps=6000,  # Positive integer >=1; raise for longer rollouts.
         duration_seconds=6.0,  # None removes the wall-clock limit; otherwise supply any positive float seconds cap.
-        sample_stride=120,  # Positive integer >=1; 1 logs every step, larger values thin the dataset.
     ),
     video_overrides=dict(
         path=Path("humanoid_lqr.mp4"),  # Path/str output target (e.g. change extension to .mov or folder prefixes).

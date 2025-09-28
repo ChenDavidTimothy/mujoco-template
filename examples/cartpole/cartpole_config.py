@@ -11,7 +11,6 @@ RUN_SETTINGS = mt.PassiveRunSettings.from_flags(
     simulation_overrides=dict(
         max_steps=2000,  # Positive integer >=1; increase for longer episodes before forced termination.
         duration_seconds=None,  # Either None for unlimited wall-clock time or any positive float cap (seconds).
-        sample_stride=50,  # Positive integer >=1 controlling log decimation; 1 records every step, higher skips samples.
     ),
     video_overrides=dict(
         path=Path("cartpole.mp4"),  # Any pathlib.Path or string target (e.g. ".mov", nested directories, network mounts).
