@@ -99,19 +99,23 @@ def test_model_handle_rejects_mismatched_data() -> None:
 
 def test_env_step_can_skip_observation_and_hooks(handle: ModelHandle) -> None:
     calls = {"extract": 0, "reward": 0, "done": 0, "info": 0}
+    received_obs: list[Observation | None] = []
 
-    def reward_fn(model: mj.MjModel, data: mj.MjData, obs: Observation) -> float:
+    def reward_fn(model: mj.MjModel, data: mj.MjData, obs: Observation | None) -> float:
         calls["reward"] += 1
+        received_obs.append(obs)
         return 0.0
 
-    def done_fn(model: mj.MjModel, data: mj.MjData, obs: Observation) -> bool:
+    def done_fn(model: mj.MjModel, data: mj.MjData, obs: Observation | None) -> bool:
         calls["done"] += 1
+        received_obs.append(obs)
         return False
 
     def info_fn(
-        model: mj.MjModel, data: mj.MjData, obs: Observation
+        model: mj.MjModel, data: mj.MjData, obs: Observation | None
     ) -> dict[str, str | float | int | np.ndarray]:
         calls["info"] += 1
+        received_obs.append(obs)
         return {"value": float(data.time)}
 
     env = Env(
@@ -136,11 +140,12 @@ def test_env_step_can_skip_observation_and_hooks(handle: ModelHandle) -> None:
 
     result = env.step(return_obs=False)
 
-    assert calls == {"extract": 0, "reward": 0, "done": 0, "info": 0}
+    assert calls == {"extract": 0, "reward": 1, "done": 1, "info": 1}
+    assert received_obs == [None, None, None]
     assert result.obs is None
-    assert result.reward is None
+    assert result.reward == 0.0
     assert result.done is False
-    assert result.info == {}
+    assert result.info == {"value": pytest.approx(float(env.data.time))}
 
 
 def test_iterate_passive_respects_return_obs_flag(handle: ModelHandle) -> None:
