@@ -1,33 +1,31 @@
-import sys
+from __future__ import annotations
 
 import numpy as np
 
 import mujoco_template as mt
-from pendulum_common import (
-    initialize_state as seed_pendulum,
-    make_env as make_pendulum_env,
-    make_tip_probes,
-    resolve_pendulum_columns,
-)
-from pendulum_passive_config import CONFIG
+
+from ..pendulum_common import make_env, make_tip_probes, resolve_pendulum_columns
+from ..pendulum_common import initialize_state as seed_pendulum
+from ..pendulum_passive_config import CONFIG, ExampleConfig
 
 
-def build_env():
+def build_env(config: ExampleConfig = CONFIG) -> mt.Env:
+    del config  # Passive scenario uses the default configuration baked into the harness.
     obs_spec = mt.ObservationSpec(
         include_ctrl=False,
         include_sensordata=False,
         include_time=True,
         sites_pos=("tip",),
     )
-    return make_pendulum_env(obs_spec=obs_spec)
+    return make_env(obs_spec=obs_spec)
 
 
-def seed_env(env):
-    init_cfg = CONFIG.initial_state
+def seed_env(env: mt.Env, config: ExampleConfig = CONFIG) -> None:
+    init_cfg = config.initial_state
     seed_pendulum(env, angle_deg=init_cfg.angle_deg, velocity_deg=init_cfg.velocity_deg)
 
 
-def summarize(result):
+def summarize(result: mt.PassiveRunResult) -> None:
     recorder = result.recorder
     rows = recorder.rows
     if not rows:
@@ -62,21 +60,5 @@ HARNESS = mt.PassiveRunHarness(
 )
 
 
-def main(argv=None):
-    init_cfg = CONFIG.initial_state
-    print(
-        "Initial pendulum angle: {:.2f} deg; velocity: {:.2f} deg/s".format(
-            init_cfg.angle_deg,
-            init_cfg.velocity_deg,
-        )
-    )
+__all__ = ["HARNESS", "build_env", "seed_env", "summarize"]
 
-    result = HARNESS.run_from_cli(CONFIG.run, args=argv)
-    summarize(result)
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        sys.exit(130)

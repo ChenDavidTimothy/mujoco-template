@@ -1,0 +1,29 @@
+from __future__ import annotations
+
+import sys
+
+from .cartpole_config import CONFIG
+from .scenarios import HARNESS, summarize
+
+
+def main(argv: list[str] | None = None) -> None:
+    seed_cfg = CONFIG.initial_state
+
+    print(
+        "Initial cart x: {:.3f} m | pole angle: {:.2f} deg | pole velocity: {:.2f} deg/s".format(
+            seed_cfg.cart_position,
+            seed_cfg.pole_angle_deg,
+            seed_cfg.pole_velocity_deg,
+        )
+    )
+
+    result = HARNESS.run_from_cli(CONFIG.run.build(), args=argv)
+    summarize(result)
+
+
+if __name__ == "__main__":  # pragma: no cover - CLI entry point
+    try:
+        main(sys.argv[1:])
+    except KeyboardInterrupt:  # pragma: no cover - user interrupt
+        sys.exit(130)
+

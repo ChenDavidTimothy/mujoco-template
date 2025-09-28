@@ -1,6 +1,6 @@
-from pathlib import Path
+from __future__ import annotations
 
-import numpy as np
+from pathlib import Path
 
 import mujoco_template as mt
 

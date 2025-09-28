@@ -1,15 +1,14 @@
-import sys
+from __future__ import annotations
+
 from typing import Iterable
 
 import numpy as np
 import scipy.linalg
-
 from numpy.linalg import LinAlgError
 
 import mujoco_template as mt
 
-from drone_common import make_env, make_navigation_probes
-from drone_config import CONFIG
+from ..drone_config import ControllerConfig
 
 
 class DroneLQRController:
@@ -17,7 +16,7 @@ class DroneLQRController:
 
     def __init__(
         self,
-        config,
+        config: ControllerConfig,
         *,
         start_position: Iterable[float] | None = None,
         start_orientation: Iterable[float] | None = None,
@@ -137,7 +136,7 @@ class DroneLQRController:
         Q = self._build_state_cost(cfg)
         R = self._build_ctrl_cost(cfg)
 
-        P, K = self._solve_lqr_gains(A, B, Q, R)
+        _P, K = self._solve_lqr_gains(A, B, Q, R)
 
         closed_loop = A - B @ K
         eigvals = np.linalg.eigvals(closed_loop)
@@ -320,120 +319,61 @@ class DroneLQRController:
             raise mt.ConfigError(f"{kind.capitalize()} specifications must be length-3 tuples.")
         return vec
 
-    def _compose_qvel(self, linear_velocity: np.ndarray, angular_velocity: np.ndarray) -> np.ndarray:
-        qvel = np.zeros(self._nv)
-        pos_dim = min(3, self._nv)
-        rot_dim = min(3, max(0, self._nv - pos_dim))
-        if pos_dim > 0:
-            qvel[:pos_dim] = linear_velocity[:pos_dim]
-        if rot_dim > 0:
-            qvel[pos_dim : pos_dim + rot_dim] = angular_velocity[:rot_dim]
-        return qvel
-
-    def _build_state_cost(self, cfg) -> np.ndarray:
-        nv = self._nv
-        Q = np.zeros((2 * nv, 2 * nv))
-
-        pos_dim = min(3, nv)
-        rot_dim = min(3, max(0, nv - pos_dim))
-
-        if pos_dim > 0:
-            pos_diag = self._resolve_weight_diagonal(cfg.position_weight, pos_dim, "position")
-            vel_diag = self._resolve_weight_diagonal(cfg.velocity_weight, pos_dim, "velocity")
-            Q[:pos_dim, :pos_dim] = np.diag(pos_diag)
-            Q[nv : nv + pos_dim, nv : nv + pos_dim] = np.diag(vel_diag)
-        if rot_dim > 0:
-            start = pos_dim
-            stop = pos_dim + rot_dim
-            ori_diag = self._resolve_weight_diagonal(cfg.orientation_weight, rot_dim, "orientation")
-            ang_diag = self._resolve_weight_diagonal(
-                cfg.angular_velocity_weight, rot_dim, "angular velocity"
-            )
-            Q[start:stop, start:stop] = np.diag(ori_diag)
-            vel_start = nv + pos_dim
-            vel_stop = vel_start + rot_dim
-            Q[vel_start:vel_stop, vel_start:vel_stop] = np.diag(ang_diag)
-
-        return Q
-
-    def _build_ctrl_cost(self, cfg) -> np.ndarray:
-        weight = float(cfg.control_weight)
-        if weight <= 0.0:
-            raise mt.ConfigError("control_weight must be positive.")
-        return weight * np.eye(self._nu)
+    def _resolve_feedback_scale(self, scale: Iterable[float] | float, size: int, label: str) -> np.ndarray:
+        arr = np.asarray(scale, dtype=float).reshape(-1)
+        if arr.size == 1:
+            arr = np.repeat(arr, size)
+        if arr.size != size:
+            raise mt.ConfigError(f"{label.capitalize()} scale must broadcast to dimension {size}.")
+        if np.any(arr <= 0.0):
+            raise mt.ConfigError(f"{label.capitalize()} scale entries must be positive.")
+        return arr
 
     @staticmethod
-    def _resolve_weight_diagonal(weight, dim: int, name: str) -> np.ndarray:
-        values = np.asarray(weight, dtype=float)
-        if values.ndim == 0:
-            values = np.full(dim, float(values))
-        else:
-            values = values.reshape(-1)
-            if values.size == 1:
-                values = np.full(dim, float(values[0]))
-            elif values.size != dim:
-                raise mt.ConfigError(
-                    f"{name.capitalize()} weight must be a scalar or length-{dim} sequence; got {values.size}."
-                )
+    def _compose_qvel(linear: np.ndarray, angular: np.ndarray) -> np.ndarray:
+        linear = np.asarray(linear, dtype=float).reshape(-1)
+        angular = np.asarray(angular, dtype=float).reshape(-1)
+        return np.concatenate([linear, angular])
 
-        if np.any(~np.isfinite(values)):
-            raise mt.ConfigError(f"{name.capitalize()} weights must be finite numbers.")
-        if np.any(values < 0.0):
-            raise mt.ConfigError(f"{name.capitalize()} weights must be non-negative.")
-        return values
+    def _build_state_cost(self, cfg: ControllerConfig) -> np.ndarray:
+        pos_weights = self._resolve_feedback_scale(cfg.position_weight, self._pos_dim, "position weight")
+        rot_weights = self._resolve_feedback_scale(cfg.orientation_weight, self._rot_dim, "orientation weight")
+        vel_weights = self._resolve_feedback_scale(cfg.velocity_weight, self._pos_dim, "velocity weight")
+        ang_weights = self._resolve_feedback_scale(
+            cfg.angular_velocity_weight, self._rot_dim, "angular velocity weight"
+        )
 
-    @staticmethod
-    def _resolve_feedback_scale(scale, dim: int, name: str) -> np.ndarray:
-        if dim == 0:
-            return np.ones(0)
-        values = np.asarray(scale, dtype=float)
-        if values.ndim == 0:
-            values = np.full(dim, float(values))
-        else:
-            values = values.reshape(-1)
-            if values.size == 1:
-                values = np.full(dim, float(values[0]))
-            elif values.size != dim:
-                raise mt.ConfigError(
-                    f"{name.capitalize()} must be a scalar or length-{dim} sequence; got {values.size}."
-                )
-        if np.any(~np.isfinite(values)):
-            raise mt.ConfigError(f"{name.capitalize()} must contain finite numbers.")
-        if np.any(values <= 0.0):
-            raise mt.ConfigError(f"{name.capitalize()} must be strictly positive.")
-        return values
+        q_weights = np.concatenate([pos_weights, rot_weights])
+        qd_weights = np.concatenate([vel_weights, ang_weights])
+        return np.diag(np.concatenate([q_weights, qd_weights]))
 
-    def _solve_lqr_gains(self, A: np.ndarray, B: np.ndarray, Q: np.ndarray, R: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Solve the discrete-time algebraic Riccati equation with fallbacks.
+    def _build_ctrl_cost(self, cfg: ControllerConfig) -> np.ndarray:
+        control_weight = float(cfg.control_weight)
+        if control_weight < 0.0:
+            raise mt.ConfigError("control_weight must be non-negative.")
+        return control_weight * np.eye(self._nu)
 
-        SciPy's :func:`solve_discrete_are` occasionally raises ``LinAlgError`` when
-        the associated symplectic pencil has eigenvalues close to the unit
-        circle.  This happens for the drone linearization due to near-marginally
-        stable dynamics around hover.  To make the example robust across
-        platforms we progressively regularize the state and control penalties and
-        retry the solver.  The additional penalty is tiny and has a negligible
-        effect on the resulting controller but nudges the eigenvalues away from
-        the problematic regime.
-        """
-
+    def _solve_lqr_gains(
+        self,
+        A: np.ndarray,
+        B: np.ndarray,
+        Q: np.ndarray,
+        R: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
         try:
             P = scipy.linalg.solve_discrete_are(A, B, Q, R)
-            K = np.linalg.solve(R + B.T @ P @ B, B.T @ P @ A)
+            K = scipy.linalg.solve(R + B.T @ P @ B, B.T @ P @ A, assume_a="sym")
             return P, K
-        except LinAlgError:
-            pass
+        except LinAlgError as err:
+            last_error: LinAlgError | None = err
 
-        eye_Q = np.eye(Q.shape[0])
-        eye_R = np.eye(R.shape[0])
-        last_error: LinAlgError | None = None
-
-        # Retry with gradually increasing diagonal regularization.
-        for reg in (1e-12, 1e-10, 1e-8, 1e-6, 1e-4):
+        # Retry with progressively inflated state costs for numerical stability.
+        scales = (10.0, 100.0, 1000.0)
+        last_error = None
+        for scale in scales:
             try:
-                Q_reg = Q + reg * eye_Q
-                R_reg = R + reg * eye_R
-                P = scipy.linalg.solve_discrete_are(A, B, Q_reg, R_reg)
-                K = np.linalg.solve(R_reg + B.T @ P @ B, B.T @ P @ A)
+                P = scipy.linalg.solve_discrete_are(A, B, scale * Q, R)
+                K = scipy.linalg.solve(R + B.T @ P @ B, B.T @ P @ A, assume_a="sym")
                 return P, K
             except LinAlgError as err:  # pragma: no cover - rare failure path
                 last_error = err
@@ -504,146 +444,5 @@ class DroneLQRController:
         return np.array(self._K, copy=True)
 
 
-def _require_lqr_controller(controller: mt.Controller) -> DroneLQRController:
-    if not isinstance(controller, DroneLQRController):
-        raise mt.TemplateError("DroneLQRController is required for this harness.")
-    return controller
+__all__ = ["DroneLQRController"]
 
-
-def build_env() -> mt.Env:
-    ctrl_cfg = CONFIG.controller
-    traj_cfg = CONFIG.trajectory
-    controller = DroneLQRController(
-        ctrl_cfg,
-        start_position=traj_cfg.start_position_m,
-        start_orientation=traj_cfg.start_orientation_wxyz,
-        start_velocity=traj_cfg.start_velocity_mps,
-        start_angular_velocity=traj_cfg.start_angular_velocity_radps,
-    )
-    obs_spec = mt.ObservationSpec(include_ctrl=True, include_sensordata=False, include_time=True)
-    return make_env(obs_spec=obs_spec, controller=controller)
-
-
-def seed_env(env: mt.Env) -> None:
-    env.reset()
-    controller = _require_lqr_controller(env.controller)
-    env.data.qpos[:] = controller.qpos_start
-    env.data.qvel[:] = controller.qvel_start
-    env.data.ctrl[: controller.ctrl_equilibrium.shape[0]] = controller.ctrl_equilibrium
-    env.handle.forward()
-
-
-def summarize(result: mt.PassiveRunResult) -> None:
-    controller = _require_lqr_controller(result.env.controller)
-    recorder = result.recorder
-    rows = recorder.rows
-    goal = controller.goal_position
-
-    if rows:
-        column_index = recorder.column_index
-        distance_idx = column_index.get("goal_distance_m")
-        if distance_idx is not None:
-            distances = np.array([row[distance_idx] for row in rows], dtype=float)
-            print(
-                "Goal distance min {:.3f} m | max {:.3f} m | final {:.3f} m".format(
-                    float(distances.min()), float(distances.max()), float(distances[-1])
-                )
-            )
-
-    final_position = np.array(result.env.data.qpos[:3], dtype=float)
-    final_orientation = np.array(result.env.data.qpos[3:7], dtype=float)
-    final_velocity = np.array(result.env.data.qvel[:3], dtype=float)
-    goal_velocity = controller.goal_velocity
-    goal_angular_velocity = controller.goal_angular_velocity
-    goal_orientation = controller.goal_orientation
-
-    qvel_goal = controller.qvel_goal
-    pos_dim = min(3, qvel_goal.size)
-    rot_dim = min(3, max(0, qvel_goal.size - pos_dim))
-    final_qvel = np.array(result.env.data.qvel, dtype=float)
-    final_linear = np.zeros(3)
-    final_linear[:pos_dim] = final_qvel[:pos_dim]
-    final_angular = np.zeros(3)
-    if rot_dim > 0:
-        final_angular[:rot_dim] = final_qvel[pos_dim : pos_dim + rot_dim]
-
-    print(
-        "Final position [{:.3f}, {:.3f}, {:.3f}] m | target [{:.3f}, {:.3f}, {:.3f}] m".format(
-            *final_position, *goal
-        )
-    )
-    print(
-        "Final orientation [{:.3f}, {:.3f}, {:.3f}, {:.3f}] wxyz | target [{:.3f}, {:.3f}, {:.3f}, {:.3f}] wxyz".format(
-            *final_orientation,
-            *goal_orientation,
-        )
-    )
-    print(
-        "Final velocity [{:.3f}, {:.3f}, {:.3f}] m/s | target [{:.3f}, {:.3f}, {:.3f}] m/s".format(
-            *final_linear,
-            *goal_velocity,
-        )
-    )
-    print(
-        "Final angular velocity [{:.3f}, {:.3f}, {:.3f}] rad/s | target [{:.3f}, {:.3f}, {:.3f}] rad/s".format(
-            *final_angular,
-            *goal_angular_velocity,
-        )
-    )
-    print(
-        "Translational speed {:.3f} m/s | simulated {:.3f} s over {} steps".format(
-            float(np.linalg.norm(final_velocity)), float(result.env.data.time), result.steps
-        )
-    )
-
-
-HARNESS = mt.PassiveRunHarness(
-    build_env,
-    description="Skydio X2 drone point-to-point flight via LQR (MuJoCo Template)",
-    seed_fn=seed_env,
-    probes=make_navigation_probes,
-    start_message="Running drone LQR rollout...",
-)
-
-
-def main(argv=None) -> None:
-    ctrl_cfg = CONFIG.controller
-    traj_cfg = CONFIG.trajectory
-    print(
-        "Preparing drone LQR controller (keyframe {} | target [{:.2f}, {:.2f}, {:.2f}] m)".format(
-            ctrl_cfg.keyframe,
-            *np.asarray(ctrl_cfg.goal_position_m, dtype=float),
-        )
-    )
-    print(
-        "Start position [{:.2f}, {:.2f}, {:.2f}] m | duration {} steps".format(
-            *np.asarray(traj_cfg.start_position_m, dtype=float),
-            CONFIG.run.simulation.max_steps,
-        )
-    )
-    print(
-        "Start orientation [{:.3f}, {:.3f}, {:.3f}, {:.3f}] wxyz".format(
-            *np.asarray(traj_cfg.start_orientation_wxyz, dtype=float)
-        )
-    )
-    print(
-        "Start velocity [{:.2f}, {:.2f}, {:.2f}] m/s | angular [{:.2f}, {:.2f}, {:.2f}] rad/s".format(
-            *np.asarray(traj_cfg.start_velocity_mps, dtype=float),
-            *np.asarray(traj_cfg.start_angular_velocity_radps, dtype=float),
-        )
-    )
-    print(
-        "Goal velocity [{:.2f}, {:.2f}, {:.2f}] m/s | angular [{:.2f}, {:.2f}, {:.2f}] rad/s".format(
-            *np.asarray(ctrl_cfg.goal_velocity_mps, dtype=float),
-            *np.asarray(ctrl_cfg.goal_angular_velocity_radps, dtype=float),
-        )
-    )
-    result = HARNESS.run_from_cli(CONFIG.run, args=argv)
-    summarize(result)
-
-
-if __name__ == "__main__":
-    try:
-        main(sys.argv[1:])
-    except KeyboardInterrupt:
-        sys.exit(130)
