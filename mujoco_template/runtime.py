@@ -503,8 +503,14 @@ def iterate_passive(
     duration: float | None = None,
     max_steps: int | None = None,
     hooks: StepHook | Iterable[StepHook] | None = None,
+    return_obs: bool = True,
 ) -> Iterator[StepResult]:
-    """Yield passive simulation steps, applying optional hooks per step."""
+    """Yield passive simulation steps, applying optional hooks per step.
+
+    When ``return_obs`` is ``False`` the underlying :meth:`Env.step` call skips
+    observation extraction and reward/done/info hooks, allowing minimal-overhead
+    rollouts for callers that inspect :attr:`Env.data` directly.
+    """
 
     if duration is not None and duration < 0:
         raise ConfigError("duration must be >= 0 when provided.")
@@ -514,7 +520,7 @@ def iterate_passive(
     normalized_hooks = _normalize_hooks(hooks)
     steps = 0
     while True:
-        result = env.step()
+        result = env.step(return_obs=return_obs)
         steps += 1
         for hook in normalized_hooks:
             hook(result)
@@ -532,11 +538,18 @@ def run_passive_headless(
     duration: float | None = None,
     max_steps: int | None = None,
     hooks: StepHook | Iterable[StepHook] | None = None,
+    return_obs: bool = True,
 ) -> int:
     """Drive the environment headlessly and return the executed step count."""
 
     steps = 0
-    for _ in iterate_passive(env, duration=duration, max_steps=max_steps, hooks=hooks):
+    for _ in iterate_passive(
+        env,
+        duration=duration,
+        max_steps=max_steps,
+        hooks=hooks,
+        return_obs=return_obs,
+    ):
         steps += 1
     return steps
 
@@ -548,6 +561,7 @@ def run_passive_viewer(
     max_steps: int | None = None,
     hooks: StepHook | Iterable[StepHook] | None = None,
     sleep_to_timestep: bool = True,
+    return_obs: bool = True,
 ) -> int:
     """Run the interactive viewer loop while stepping the environment."""
 
@@ -569,7 +583,7 @@ def run_passive_viewer(
     with viewer_module.launch_passive(env.model, env.data) as viewer:
         while viewer.is_running():
             step_start = time.perf_counter()
-            result = env.step()
+            result = env.step(return_obs=return_obs)
             steps += 1
             for hook in normalized_hooks:
                 hook(result)
@@ -595,6 +609,7 @@ def run_passive_video(
     duration: float | None = None,
     max_steps: int | None = None,
     hooks: StepHook | Iterable[StepHook] | None = None,
+    return_obs: bool = True,
 ) -> int:
     """Run a headless simulation while streaming frames to an FFmpeg-backed exporter."""
 
@@ -609,7 +624,11 @@ def run_passive_video(
     steps = 0
     with exporter:
         for _ in iterate_passive(
-            env, duration=duration, max_steps=max_steps, hooks=combined_hooks
+            env,
+            duration=duration,
+            max_steps=max_steps,
+            hooks=combined_hooks,
+            return_obs=return_obs,
         ):
             steps += 1
     return steps
