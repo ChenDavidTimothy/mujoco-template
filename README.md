@@ -7,7 +7,7 @@ Reusable building blocks for MuJoCo-based control projects. The package keeps Mu
 - Compatibility telemetry that surfaces actuator group mismatches, servo metadata gaps, and integrated-velocity policy limits as warnings without blocking execution.
 - Declarative observation layer that validates named entities and returns either structured dicts or flattened arrays.
 - On-demand linearization and Jacobian utilities with native MuJoCo fallbacks for fast prototyping of optimal control pipelines.
-- Logging, rollout, and runtime helpers that eliminate boilerplate for headless runs, viewer sessions, and CSV trajectory capture.
+- Logging and runtime helpers that eliminate boilerplate for headless runs, viewer sessions, and CSV trajectory capture.
 
 ## Installation
 ```bash
@@ -23,30 +23,17 @@ pip install -e .[test]
 
 ## Quick Start
 ```python
-from mujoco_template import ModelHandle, Env, ObservationSpec, ZeroController
+from mujoco_template import Env, ObservationSpec, ZeroController
 
-handle = ModelHandle.from_xml_path("examples/pendulum/pendulum.xml")
-obs_spec = ObservationSpec()
-controller = ZeroController()
-
-env = Env(handle, controller=controller, obs_spec=obs_spec)
-obs0 = env.reset()
-result = env.step()
-print(f"qpos after one step: {result.obs['qpos']}")
-```
-
-
-Prefer a shortcut rollout? Use `rollout`:
-```python
-from mujoco_template import ObservationSpec, ZeroController, rollout
-
-trajectory = rollout(
-    "examples/cartpole/cartpole.xml",
-    steps=200,
+env = Env.from_xml_path(
+    "examples/pendulum/pendulum.xml",
     controller=ZeroController(),
     obs_spec=ObservationSpec(),
 )
-print(f"Collected {len(trajectory)} observations")
+
+# ``auto_reset=True`` by default, so the environment is ready to step.
+for step in env.passive(max_steps=200):
+    print(f"time={env.data.time:.3f}s qpos={step.obs['qpos']}")
 ```
 
 Need zero-boilerplate runtime tooling? Configure once and reuse `PassiveRunHarness`:

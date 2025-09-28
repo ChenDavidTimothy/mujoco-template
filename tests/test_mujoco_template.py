@@ -23,7 +23,6 @@ from mujoco_template import (
     compute_requested_jacobians,
     Env,
     steady_ctrl0,
-    rollout,
     run_passive_video,
     VideoEncoderSettings,
     VideoExporter,
@@ -365,12 +364,26 @@ def test_steady_ctrl0_preserves_state(handle: ModelHandle) -> None:
     np.testing.assert_allclose(data.qpos, qpos_before)
     np.testing.assert_allclose(data.qvel, qvel_before)
 
-def test_quick_rollout_returns_observations_list(tmp_path: Path) -> None:
+def _write_base_xml(tmp_path: Path) -> Path:
     xml_path = tmp_path / "model.xml"
     xml_path.write_text(BASE_XML)
-    traj = rollout(
+    return xml_path
+
+
+def test_env_from_xml_path_auto_resets(tmp_path: Path) -> None:
+    xml_path = _write_base_xml(tmp_path)
+
+    env = Env.from_xml_path(str(xml_path))
+
+    assert env.data.time == pytest.approx(0.0)
+    assert env.model.nq == env.data.qpos.shape[0]
+
+
+def test_env_passive_returns_step_results(tmp_path: Path) -> None:
+    xml_path = _write_base_xml(tmp_path)
+
+    env = Env.from_xml_path(
         str(xml_path),
-        steps=3,
         controller=ZeroController(),
         obs_spec=ObservationSpec(
             include_qpos=True,
@@ -379,12 +392,16 @@ def test_quick_rollout_returns_observations_list(tmp_path: Path) -> None:
             include_sensordata=True,
             sites_pos=("tip",),
         ),
-        enabled_groups=[0, 1],
     )
-    assert len(traj) == 3
-    first = traj[0]
-    assert isinstance(first, dict)
-    assert "qpos" in first
+
+    collected: list[Observation] = []
+
+    for step in env.passive(max_steps=3, hooks=lambda result: collected.append(result.obs)):
+        assert isinstance(step.obs, dict)
+        assert "qpos" in step.obs
+
+    assert len(collected) == 3
+    assert env.data.time > 0.0
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="FFmpeg binary is unavailable")
 def test_run_passive_video_exports_mp4(tmp_path: Path) -> None:

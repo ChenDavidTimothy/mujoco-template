@@ -7,17 +7,15 @@ import mujoco_template as mt
 PENDULUM_XML = Path(__file__).with_name("pendulum.xml")
 
 
-def load_model_handle():
-    """Return a fresh handle to the pendulum MuJoCo model."""
-
-    return mt.ModelHandle.from_xml_path(str(PENDULUM_XML))
-
-
 def make_env(*, obs_spec, controller=None, **env_kwargs):
     """Construct an Env for the pendulum using the given observation spec and controller."""
 
-    handle = load_model_handle()
-    return mt.Env(handle, obs_spec=obs_spec, controller=controller, **env_kwargs)
+    return mt.Env.from_xml_path(
+        str(PENDULUM_XML),
+        obs_spec=obs_spec,
+        controller=controller,
+        **env_kwargs,
+    )
 
 
 def initialize_state(env, *, angle_deg, velocity_deg):
@@ -80,7 +78,6 @@ def resolve_pendulum_columns(model):
 __all__ = [
     "PENDULUM_XML",
     "initialize_state",
-    "load_model_handle",
     "make_env",
     "require_site_id",
     "resolve_actuator_label",

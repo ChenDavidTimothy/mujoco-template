@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 import warnings
 
@@ -91,6 +91,52 @@ class Env:
     def compat_warnings(self) -> list[str]:
         return list(self._compat_warnings)
 
+    @classmethod
+    def from_xml_path(
+        cls,
+        xml_path: str,
+        *,
+        obs_spec: ObservationSpec | None = None,
+        controller: Controller | None = None,
+        reward_fn: Callable[[mj.MjModel, mj.MjData, Observation], float] | None = None,
+        done_fn: Callable[[mj.MjModel, mj.MjData, Observation], bool] | None = None,
+        info_fn: Callable[[mj.MjModel, mj.MjData, Observation], InfoDict] | None = None,
+        enabled_groups: Iterable[int] | None = None,
+        control_decimation: int = 1,
+        auto_reset: bool = True,
+        keyframe: int | str | None = None,
+    ) -> "Env":
+        """Construct an :class:`Env` from an XML path and optionally reset it.
+
+        Parameters mirror :class:`Env.__init__` with the addition of ``xml_path``
+        and ``auto_reset``/``keyframe``.  ``obs_spec`` defaults to
+        ``ObservationSpec(include_sensordata=False)`` so the behaviour matches
+        the streamlined example setup functions.
+        """
+
+        if obs_spec is None:
+            obs_spec = ObservationSpec(include_sensordata=False)
+
+        handle = ModelHandle.from_xml_path(xml_path)
+        env = cls(
+            handle,
+            obs_spec=obs_spec,
+            controller=controller,
+            reward_fn=reward_fn,
+            done_fn=done_fn,
+            info_fn=info_fn,
+            enabled_groups=enabled_groups,
+            control_decimation=control_decimation,
+        )
+
+        if keyframe is not None and not auto_reset:
+            raise ConfigError("auto_reset=False is incompatible with specifying a keyframe")
+
+        if auto_reset:
+            env.reset(keyframe)
+
+        return env
+
     def reset(self, keyframe: int | str | None = None) -> Observation:
         if keyframe is None:
             self.handle.reset()
@@ -142,6 +188,19 @@ class Env:
         return linearize_discrete(
             self.model, self.data, use_native=True, eps=eps, horizon_steps=horizon_steps
         )
+
+    def passive(
+        self,
+        *,
+        duration: float | None = None,
+        max_steps: int | None = None,
+        hooks: Callable[[StepResult], None] | Iterable[Callable[[StepResult], None]] | None = None,
+    ) -> Iterator[StepResult]:
+        """Yield passive simulation steps using :func:`runtime.iterate_passive`."""
+
+        from .runtime import iterate_passive
+
+        yield from iterate_passive(self, duration=duration, max_steps=max_steps, hooks=hooks)
 
 
 __all__ = ["Env", "StepResult"]

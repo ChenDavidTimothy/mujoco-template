@@ -19,7 +19,6 @@ from .jacobians import compute_requested_jacobians
 from .linearization import linearize_discrete
 from .model import ModelHandle
 from .observations import ObservationExtractor, ObservationSpec
-from .rollout import rollout
 from .setpoints import steady_ctrl0
 from .video import VideoEncoderSettings, VideoExporter, RenderHook, CameraUpdater
 from .runtime import (
@@ -99,7 +98,6 @@ __all__ = [
     "linearize_discrete",
     "compute_requested_jacobians",
     "steady_ctrl0",
-    "rollout",
     "TrajectoryLogger",
     "SimulationSettings",
     "VideoSettings",

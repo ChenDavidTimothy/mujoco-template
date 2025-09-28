@@ -5,17 +5,15 @@ import mujoco_template as mt
 HUMANOID_XML = Path(__file__).with_name("humanoid.xml")
 
 
-def load_model_handle():
-    """Return a fresh handle for the humanoid MuJoCo model."""
-
-    return mt.ModelHandle.from_xml_path(str(HUMANOID_XML))
-
-
 def make_env(*, obs_spec, controller=None, **env_kwargs):
     """Construct an Env bound to the humanoid model."""
 
-    handle = load_model_handle()
-    return mt.Env(handle, obs_spec=obs_spec, controller=controller, **env_kwargs)
+    return mt.Env.from_xml_path(
+        str(HUMANOID_XML),
+        obs_spec=obs_spec,
+        controller=controller,
+        **env_kwargs,
+    )
 
 
 def require_body_id(model, name):
@@ -47,7 +45,6 @@ def make_balance_probes(env):
 
 __all__ = [
     "HUMANOID_XML",
-    "load_model_handle",
     "make_env",
     "make_balance_probes",
     "require_body_id",

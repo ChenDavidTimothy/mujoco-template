@@ -4,7 +4,7 @@ import argparse
 
 from .control import Controller
 from .controllers import ZeroController
-from .rollout import rollout
+from .env import Env
 
 
 def main() -> None:
@@ -19,14 +19,18 @@ def main() -> None:
     args = parser.parse_args()
 
     controller: Controller | None = ZeroController() if args.zero else None
-    traj = rollout(
+    env = Env.from_xml_path(
         args.xml,
-        steps=args.steps,
         controller=controller,
         enabled_groups=args.groups,
         control_decimation=args.decim,
     )
-    print(f"Completed {len(traj)} steps.")
+
+    steps = 0
+    for _ in env.passive(max_steps=args.steps):
+        steps += 1
+
+    print(f"Completed {steps} steps.")
 
 
 if __name__ == "__main__":
