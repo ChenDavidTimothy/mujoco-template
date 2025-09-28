@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-from types import SimpleNamespace
-
 import numpy as np
 
 import mujoco_template as mt
@@ -11,13 +7,13 @@ from ..drone_common import make_env, make_navigation_probes
 from ..drone_config import CONFIG
 
 
-def _require_lqr_controller(controller: mt.Controller) -> DroneLQRController:
+def _require_lqr_controller(controller):
     if not isinstance(controller, DroneLQRController):
         raise mt.TemplateError("DroneLQRController is required for this harness.")
     return controller
 
 
-def build_env(config: SimpleNamespace = CONFIG) -> mt.Env:
+def build_env(config=CONFIG):
     ctrl_cfg = config.controller
     traj_cfg = config.trajectory
     controller = DroneLQRController(
@@ -31,7 +27,7 @@ def build_env(config: SimpleNamespace = CONFIG) -> mt.Env:
     return make_env(obs_spec=obs_spec, controller=controller)
 
 
-def seed_env(env: mt.Env, config: SimpleNamespace = CONFIG) -> None:
+def seed_env(env, config=CONFIG):
     del config  # Configuration is baked into the controller during build_env.
     env.reset()
     controller = _require_lqr_controller(env.controller)
@@ -41,7 +37,7 @@ def seed_env(env: mt.Env, config: SimpleNamespace = CONFIG) -> None:
     env.handle.forward()
 
 
-def summarize(result: mt.PassiveRunResult) -> None:
+def summarize(result):
     controller = _require_lqr_controller(result.env.controller)
     recorder = result.recorder
     rows = recorder.rows

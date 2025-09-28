@@ -1,8 +1,3 @@
-from __future__ import annotations
-
-from typing import Iterable
-from types import SimpleNamespace
-
 import numpy as np
 import scipy.linalg
 from numpy.linalg import LinAlgError
@@ -15,13 +10,13 @@ class DroneLQRController:
 
     def __init__(
         self,
-        config: SimpleNamespace,
+        config,
         *,
-        start_position: Iterable[float] | None = None,
-        start_orientation: Iterable[float] | None = None,
-        start_velocity: Iterable[float] | None = None,
-        start_angular_velocity: Iterable[float] | None = None,
-    ) -> None:
+        start_position=None,
+        start_orientation=None,
+        start_velocity=None,
+        start_angular_velocity=None,
+    ):
         self.capabilities = mt.ControllerCapabilities(control_space=mt.ControlSpace.TORQUE)
         self._config = config
         self._start_position_cfg = None if start_position is None else np.asarray(start_position, dtype=float)
@@ -43,38 +38,38 @@ class DroneLQRController:
         self._pos_dim = 0
         self._rot_dim = 0
 
-        self._qpos_goal: np.ndarray | None = None
-        self._qpos_start: np.ndarray | None = None
-        self._qvel_goal: np.ndarray | None = None
-        self._qvel_start: np.ndarray | None = None
-        self._ctrl0: np.ndarray | None = None
-        self._goal_position: np.ndarray | None = None
-        self._goal_orientation: np.ndarray | None = None
-        self._goal_velocity: np.ndarray | None = None
-        self._goal_angular_velocity: np.ndarray | None = None
-        self._K: np.ndarray | None = None
-        self._A: np.ndarray | None = None
-        self._B: np.ndarray | None = None
-        self._dq_scratch: np.ndarray | None = None
-        self._dx_scratch: np.ndarray | None = None
-        self._ctrl_delta: np.ndarray | None = None
-        self._ctrl_buffer: np.ndarray | None = None
-        self._ctrl_low: np.ndarray | None = None
-        self._ctrl_high: np.ndarray | None = None
-        self._position_feedback_scale: np.ndarray | None = None
-        self._orientation_feedback_scale: np.ndarray | None = None
-        self._velocity_feedback_scale: np.ndarray | None = None
-        self._angular_velocity_feedback_scale: np.ndarray | None = None
-        self._yaw_control_scale: float = 1.0
-        self._yaw_direction: np.ndarray | None = None
-        self._yaw_direction_norm: float = 0.0
-        self._yaw_proportional_gain: float = 0.0
-        self._yaw_derivative_gain: float = 0.0
-        self._yaw_integral_gain: float = 0.0
-        self._yaw_integral_limit: float = 0.0
-        self._yaw_integral: float = 0.0
+        self._qpos_goal = None
+        self._qpos_start = None
+        self._qvel_goal = None
+        self._qvel_start = None
+        self._ctrl0 = None
+        self._goal_position = None
+        self._goal_orientation = None
+        self._goal_velocity = None
+        self._goal_angular_velocity = None
+        self._K = None
+        self._A = None
+        self._B = None
+        self._dq_scratch = None
+        self._dx_scratch = None
+        self._ctrl_delta = None
+        self._ctrl_buffer = None
+        self._ctrl_low = None
+        self._ctrl_high = None
+        self._position_feedback_scale = None
+        self._orientation_feedback_scale = None
+        self._velocity_feedback_scale = None
+        self._angular_velocity_feedback_scale = None
+        self._yaw_control_scale = 1.0
+        self._yaw_direction = None
+        self._yaw_direction_norm = 0.0
+        self._yaw_proportional_gain = 0.0
+        self._yaw_derivative_gain = 0.0
+        self._yaw_integral_gain = 0.0
+        self._yaw_integral_limit = 0.0
+        self._yaw_integral = 0.0
 
-    def prepare(self, model: mt.mj.MjModel, _data: mt.mj.MjData) -> None:
+    def prepare(self, model, _data):
         cfg = self._config
         if model.nu == 0:
             raise mt.CompatibilityError("DroneLQRController requires force-producing actuators.")
@@ -222,7 +217,7 @@ class DroneLQRController:
 
         self._prepared = True
 
-    def __call__(self, model: mt.mj.MjModel, data: mt.mj.MjData, _t: float) -> None:
+    def __call__(self, model, data, _t):
         if not self._prepared or self._qpos_goal is None or self._ctrl0 is None or self._K is None:
             raise mt.TemplateError("DroneLQRController invoked before prepare().")
         assert self._dq_scratch is not None and self._dx_scratch is not None
@@ -283,7 +278,7 @@ class DroneLQRController:
         data.ctrl[: self._nu] = self._ctrl_buffer
 
     @staticmethod
-    def _resolve_keyframe(model: mt.mj.MjModel, keyframe: int | str) -> int:
+    def _resolve_keyframe(model, keyframe):
         if isinstance(keyframe, str):
             key_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_KEY, keyframe))
             if key_id < 0:
@@ -295,14 +290,14 @@ class DroneLQRController:
         return key_id
 
     @staticmethod
-    def _normalize_position(position: Iterable[float]) -> np.ndarray:
+    def _normalize_position(position):
         pos = np.asarray(position, dtype=float).reshape(-1)
         if pos.size != 3:
             raise mt.ConfigError("Positions must be length-3 XYZ tuples.")
         return pos
 
     @staticmethod
-    def _normalize_quat(quat: np.ndarray) -> np.ndarray:
+    def _normalize_quat(quat):
         quat = np.asarray(quat, dtype=float).reshape(-1)
         if quat.size != 4:
             raise mt.ConfigError("Quaternions must contain four components (w, x, y, z).")
@@ -312,13 +307,13 @@ class DroneLQRController:
         return quat / norm
 
     @staticmethod
-    def _normalize_vector(vector: Iterable[float], kind: str) -> np.ndarray:
+    def _normalize_vector(vector, kind):
         vec = np.asarray(vector, dtype=float).reshape(-1)
         if vec.size != 3:
             raise mt.ConfigError(f"{kind.capitalize()} specifications must be length-3 tuples.")
         return vec
 
-    def _resolve_feedback_scale(self, scale: Iterable[float] | float, size: int, label: str) -> np.ndarray:
+    def _resolve_feedback_scale(self, scale, size, label):
         arr = np.asarray(scale, dtype=float).reshape(-1)
         if arr.size == 1:
             arr = np.repeat(arr, size)
@@ -329,12 +324,12 @@ class DroneLQRController:
         return arr
 
     @staticmethod
-    def _compose_qvel(linear: np.ndarray, angular: np.ndarray) -> np.ndarray:
+    def _compose_qvel(linear, angular):
         linear = np.asarray(linear, dtype=float).reshape(-1)
         angular = np.asarray(angular, dtype=float).reshape(-1)
         return np.concatenate([linear, angular])
 
-    def _build_state_cost(self, cfg: SimpleNamespace) -> np.ndarray:
+    def _build_state_cost(self, cfg):
         pos_weights = self._resolve_feedback_scale(cfg.position_weight, self._pos_dim, "position weight")
         rot_weights = self._resolve_feedback_scale(cfg.orientation_weight, self._rot_dim, "orientation weight")
         vel_weights = self._resolve_feedback_scale(cfg.velocity_weight, self._pos_dim, "velocity weight")
@@ -346,7 +341,7 @@ class DroneLQRController:
         qd_weights = np.concatenate([vel_weights, ang_weights])
         return np.diag(np.concatenate([q_weights, qd_weights]))
 
-    def _build_ctrl_cost(self, cfg: SimpleNamespace) -> np.ndarray:
+    def _build_ctrl_cost(self, cfg):
         control_weight = float(cfg.control_weight)
         if control_weight < 0.0:
             raise mt.ConfigError("control_weight must be non-negative.")
@@ -354,17 +349,17 @@ class DroneLQRController:
 
     def _solve_lqr_gains(
         self,
-        A: np.ndarray,
-        B: np.ndarray,
-        Q: np.ndarray,
-        R: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray]:
+        A,
+        B,
+        Q,
+        R,
+    ):
         try:
             P = scipy.linalg.solve_discrete_are(A, B, Q, R)
             K = scipy.linalg.solve(R + B.T @ P @ B, B.T @ P @ A, assume_a="sym")
             return P, K
         except LinAlgError as err:
-            last_error: LinAlgError | None = err
+            last_error = err
 
         # Retry with progressively inflated state costs for numerical stability.
         scales = (10.0, 100.0, 1000.0)
@@ -383,61 +378,61 @@ class DroneLQRController:
         ) from last_error
 
     @property
-    def qpos_goal(self) -> np.ndarray:
+    def qpos_goal(self):
         if self._qpos_goal is None:
             raise mt.TemplateError("Goal configuration requested before prepare().")
         return np.array(self._qpos_goal, copy=True)
 
     @property
-    def qpos_start(self) -> np.ndarray:
+    def qpos_start(self):
         if self._qpos_start is None:
             raise mt.TemplateError("Start configuration requested before prepare().")
         return np.array(self._qpos_start, copy=True)
 
     @property
-    def qvel_goal(self) -> np.ndarray:
+    def qvel_goal(self):
         if self._qvel_goal is None:
             raise mt.TemplateError("Goal velocity requested before prepare().")
         return np.array(self._qvel_goal, copy=True)
 
     @property
-    def qvel_start(self) -> np.ndarray:
+    def qvel_start(self):
         if self._qvel_start is None:
             raise mt.TemplateError("Start velocity requested before prepare().")
         return np.array(self._qvel_start, copy=True)
 
     @property
-    def ctrl_equilibrium(self) -> np.ndarray:
+    def ctrl_equilibrium(self):
         if self._ctrl0 is None:
             raise mt.TemplateError("Equilibrium controls requested before prepare().")
         return np.array(self._ctrl0, copy=True)
 
     @property
-    def goal_position(self) -> np.ndarray:
+    def goal_position(self):
         if self._goal_position is None:
             raise mt.TemplateError("Goal position requested before prepare().")
         return np.array(self._goal_position, copy=True)
 
     @property
-    def goal_orientation(self) -> np.ndarray:
+    def goal_orientation(self):
         if self._goal_orientation is None:
             raise mt.TemplateError("Goal orientation requested before prepare().")
         return np.array(self._goal_orientation, copy=True)
 
     @property
-    def goal_velocity(self) -> np.ndarray:
+    def goal_velocity(self):
         if self._goal_velocity is None:
             raise mt.TemplateError("Goal velocity requested before prepare().")
         return np.array(self._goal_velocity, copy=True)
 
     @property
-    def goal_angular_velocity(self) -> np.ndarray:
+    def goal_angular_velocity(self):
         if self._goal_angular_velocity is None:
             raise mt.TemplateError("Goal angular velocity requested before prepare().")
         return np.array(self._goal_angular_velocity, copy=True)
 
     @property
-    def gains(self) -> np.ndarray:
+    def gains(self):
         if self._K is None:
             raise mt.TemplateError("Controller gains requested before prepare().")
         return np.array(self._K, copy=True)

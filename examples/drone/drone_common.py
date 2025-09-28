@@ -1,7 +1,4 @@
-from __future__ import annotations
-
 from pathlib import Path
-from typing import Sequence
 
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -11,7 +8,7 @@ import mujoco_template as mt
 DRONE_XML = Path(__file__).with_name("scene.xml")
 
 
-def make_env(*, obs_spec: mt.ObservationSpec, controller: mt.Controller | None = None, **env_kwargs) -> mt.Env:
+def make_env(*, obs_spec, controller=None, **env_kwargs):
     """Construct an environment bound to the drone model."""
 
     return mt.Env.from_xml_path(
@@ -23,8 +20,8 @@ def make_env(*, obs_spec: mt.ObservationSpec, controller: mt.Controller | None =
 
 
 def quat_wxyz_from_body_euler(
-    *, roll_deg: float = 0.0, pitch_deg: float = 0.0, yaw_deg: float = 0.0
-) -> tuple[float, float, float, float]:
+    *, roll_deg=0.0, pitch_deg=0.0, yaw_deg=0.0
+):
     """Return a body-frame orientation specified by XYZ Euler angles in degrees.
 
     The drone model defines its body axes with ``x`` pointing forward, ``y`` to the
@@ -41,25 +38,25 @@ def quat_wxyz_from_body_euler(
     return (float(w), float(x), float(y), float(z))
 
 
-def require_site_id(model: mt.mj.MjModel, name: str) -> int:
+def require_site_id(model, name):
     site_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_SITE, name))
     if site_id < 0:
         raise mt.NameLookupError(f"Site not found in model: {name}")
     return site_id
 
 
-def make_navigation_probes(env: mt.Env) -> Sequence[mt.DataProbe]:
+def make_navigation_probes(env):
     """Create probes that track the drone's position and goal distance."""
 
     imu_site = require_site_id(env.model, "imu")
 
-    def site_component(axis: int):
-        def extractor(e: mt.Env, _result: mt.StepResult | None = None) -> float:
+    def site_component(axis):
+        def extractor(e, _result=None):
             return float(e.data.site_xpos[imu_site, axis])
 
         return extractor
 
-    def goal_distance(e: mt.Env, _result: mt.StepResult | None = None) -> float | None:
+    def goal_distance(e, _result=None):
         controller = getattr(e, "controller", None)
         if controller is None or not hasattr(controller, "goal_position"):
             return None

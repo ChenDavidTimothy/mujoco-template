@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-from types import SimpleNamespace
-
 import numpy as np
 
 import mujoco_template as mt
@@ -10,17 +6,17 @@ import mujoco_template as mt
 class PendulumPDController:
     """Simple PD torque controller that stabilizes the pendulum upright."""
 
-    def __init__(self, config: SimpleNamespace) -> None:
+    def __init__(self, config):
         self.capabilities = mt.ControllerCapabilities(control_space=mt.ControlSpace.TORQUE)
         self.kp = float(config.kp)
         self.kd = float(config.kd)
         self.target = float(np.deg2rad(config.target_angle_deg))
 
-    def prepare(self, model: mt.mj.MjModel, _data: mt.mj.MjData) -> None:
+    def prepare(self, model, _data):
         if model.nu != 1:
             raise mt.CompatibilityError("PendulumPDController expects a single actuator.")
 
-    def __call__(self, model: mt.mj.MjModel, data: mt.mj.MjData, _t: float) -> None:
+    def __call__(self, model, data, _t):
         angle = float(data.qpos[0])
         velocity = float(data.qvel[0])
         torque = -self.kp * (angle - self.target) - self.kd * velocity

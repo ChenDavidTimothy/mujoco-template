@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-from types import SimpleNamespace
-
 import numpy as np
 
 import mujoco_template as mt
@@ -10,7 +6,7 @@ import mujoco_template as mt
 class CartPolePIDController:
     """PID balance controller applying horizontal force to the cart."""
 
-    def __init__(self, config: SimpleNamespace) -> None:
+    def __init__(self, config):
         self.capabilities = mt.ControllerCapabilities(control_space=mt.ControlSpace.TORQUE)
         self.angle_kp = float(config.angle_kp)
         self.angle_kd = float(config.angle_kd)
@@ -21,13 +17,13 @@ class CartPolePIDController:
         self._integral_term = 0.0
         self._dt = 0.0
 
-    def prepare(self, model: mt.mj.MjModel, _data: mt.mj.MjData) -> None:
+    def prepare(self, model, _data):
         if model.nu != 1:
             raise mt.CompatibilityError("CartPolePIDController expects a single actuator driving the cart.")
         self._integral_term = 0.0
         self._dt = float(model.opt.timestep)
 
-    def __call__(self, model: mt.mj.MjModel, data: mt.mj.MjData, _t: float) -> None:
+    def __call__(self, model, data, _t):
         cart_x = float(data.qpos[0])
         pole_angle = float(data.qpos[1])
         cart_vel = float(data.qvel[0])

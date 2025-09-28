@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-from types import SimpleNamespace
-
 import numpy as np
 
 import mujoco_template as mt
@@ -11,13 +7,13 @@ from ..humanoid_common import make_balance_probes, make_env
 from ..humanoid_config import CONFIG
 
 
-def _require_lqr_controller(controller: mt.Controller) -> HumanoidLQRController:
+def _require_lqr_controller(controller):
     if not isinstance(controller, HumanoidLQRController):
         raise mt.TemplateError("HumanoidLQRController is required for this harness.")
     return controller
 
 
-def build_env(config: SimpleNamespace = CONFIG) -> mt.Env:
+def build_env(config=CONFIG):
     controller = HumanoidLQRController(config.controller)
     obs_spec = mt.ObservationSpec(
         include_ctrl=True,
@@ -27,7 +23,7 @@ def build_env(config: SimpleNamespace = CONFIG) -> mt.Env:
     return make_env(obs_spec=obs_spec, controller=controller)
 
 
-def seed_env(env: mt.Env, config: SimpleNamespace = CONFIG) -> None:
+def seed_env(env, config=CONFIG):
     del config  # Configuration applied during controller instantiation.
     env.reset()
     controller = _require_lqr_controller(env.controller)
@@ -37,7 +33,7 @@ def seed_env(env: mt.Env, config: SimpleNamespace = CONFIG) -> None:
     env.handle.forward()
 
 
-def summarize(result: mt.PassiveRunResult) -> None:
+def summarize(result):
     controller = _require_lqr_controller(result.env.controller)
     recorder = result.recorder
     rows = recorder.rows
