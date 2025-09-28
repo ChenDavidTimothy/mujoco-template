@@ -548,15 +548,6 @@ def _make_navigation_probes(env):
     )
 
 
-HARNESS = mt.PassiveRunHarness(
-    _make_env,
-    description="Skydio X2 LQR point-to-point flight (harness-only flow)",
-    seed_fn=_seed_env,
-    probes=_make_navigation_probes,
-    start_message="Running drone LQR rollout...",
-)
-
-
 # -------- Reporting -----------------------------------------------------------
 def summarize(result):
     controller = result.env.controller
@@ -626,6 +617,17 @@ def summarize(result):
     )
 
 
+SCENARIO = mt.PassiveScenario(
+    settings=RUN_SETTINGS,
+    env_factory=_make_env,
+    seed_fn=_seed_env,
+    probes=_make_navigation_probes,
+    summarize=summarize,
+    description="Skydio X2 LQR point-to-point flight",
+    start_message="Running drone LQR rollout...",
+)
+
+
 # -------- CLI -----------------------------------------------------------------
 def main(argv=None):
     cfg = PARAMS
@@ -659,8 +661,7 @@ def main(argv=None):
         )
     )
 
-    result = HARNESS.run_from_cli(RUN_SETTINGS, args=argv)
-    summarize(result)
+    return SCENARIO.cli(argv)
 
 
 if __name__ == "__main__":  # pragma: no cover
@@ -670,4 +671,4 @@ if __name__ == "__main__":  # pragma: no cover
         sys.exit(130)
 
 
-__all__ = ["RUN_SETTINGS", "HARNESS", "summarize", "main"]
+__all__ = ["RUN_SETTINGS", "SCENARIO", "summarize", "main"]

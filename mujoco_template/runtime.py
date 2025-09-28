@@ -422,6 +422,140 @@ class PassiveRunHarness:
         )
 
 
+class PassiveScenario:
+    """Bundle a harness, default settings, and optional summary callable."""
+
+    def __init__(
+        self,
+        *,
+        settings: PassiveRunSettings,
+        env_factory: Callable[[], Env] | None = None,
+        harness: PassiveRunHarness | None = None,
+        description: str | None = None,
+        seed_fn: Callable[[Env], None] | None = None,
+        probes: Sequence["DataProbe"] | Callable[[Env], Sequence["DataProbe"]] = (),
+        hooks_factory: Callable[[Env], Iterable[StepHook]] | None = None,
+        store_rows: bool | None = None,
+        start_message: str | None = None,
+        auto_reset: bool = False,
+        summarize: Callable[[PassiveRunResult], None] | None = None,
+    ) -> None:
+        if harness is None and env_factory is None:
+            raise ConfigError(
+                "PassiveScenario requires either an env_factory or an existing harness."
+            )
+
+        if harness is not None:
+            extra_args_supplied = any(
+                value is not default
+                for value, default in (
+                    (env_factory, None),
+                    (description, None),
+                    (seed_fn, None),
+                    (hooks_factory, None),
+                    (store_rows, None),
+                    (start_message, None),
+                )
+            ) or auto_reset or probes not in ((), [])
+            if extra_args_supplied:
+                raise ConfigError(
+                    "When providing a harness to PassiveScenario no additional harness "
+                    "configuration arguments may be supplied."
+                )
+            self._harness = harness
+        else:
+            self._harness = PassiveRunHarness(
+                env_factory,  # type: ignore[arg-type]
+                description=description,
+                seed_fn=seed_fn,
+                probes=probes,
+                hooks_factory=hooks_factory,
+                store_rows=store_rows,
+                start_message=start_message,
+                auto_reset=auto_reset,
+            )
+
+        self._settings = settings
+        self._summarize = summarize
+
+    @property
+    def harness(self) -> PassiveRunHarness:
+        """Underlying :class:`PassiveRunHarness` used by this scenario."""
+
+        return self._harness
+
+    @property
+    def settings(self) -> PassiveRunSettings:
+        """Default settings applied when none are supplied."""
+
+        return self._settings
+
+    def with_settings(self, settings: PassiveRunSettings) -> "PassiveScenario":
+        """Return a copy of the scenario with different default settings."""
+
+        return PassiveScenario(
+            settings=settings,
+            harness=self._harness,
+            summarize=self._summarize,
+        )
+
+    def run(
+        self,
+        *,
+        settings: PassiveRunSettings | None = None,
+        options: PassiveRunCLIOptions | None = None,
+        summarize: bool | Callable[[PassiveRunResult], None] | None = False,
+    ) -> PassiveRunResult:
+        """Execute the scenario headless/viewer/video according to ``options``."""
+
+        resolved_settings = settings or self._settings
+        result = self._harness.run(resolved_settings, options=options)
+        summary_cb = self._resolve_summary(summarize)
+        if summary_cb is not None:
+            summary_cb(result)
+        return result
+
+    def cli(
+        self,
+        argv: Sequence[str] | None = None,
+        *,
+        parser: argparse.ArgumentParser | None = None,
+        settings: PassiveRunSettings | None = None,
+        summarize: bool | Callable[[PassiveRunResult], None] | None = True,
+    ) -> PassiveRunResult:
+        """Parse CLI args, execute the harness, and optionally summarize the run."""
+
+        resolved_settings = settings or self._settings
+        result = self._harness.run_from_cli(
+            resolved_settings,
+            args=argv,
+            parser=parser,
+        )
+        summary_cb = self._resolve_summary(summarize)
+        if summary_cb is not None:
+            summary_cb(result)
+        return result
+
+    def summarize(self, result: PassiveRunResult) -> None:
+        """Invoke the stored summary callback if one was provided."""
+
+        if self._summarize is None:
+            raise ConfigError("This scenario was created without a summary callable.")
+        self._summarize(result)
+
+    def _resolve_summary(
+        self,
+        directive: bool | Callable[[PassiveRunResult], None] | None,
+    ) -> Callable[[PassiveRunResult], None] | None:
+        if callable(directive):
+            return directive
+        if directive in (True, None):
+            return self._summarize
+        if directive is False:
+            return None
+        raise ConfigError("Invalid summarize directive supplied to PassiveScenario.")
+
+
 class TrajectoryLogger:
     """CSV trajectory logger that can be reused across simulations."""
 
@@ -639,6 +773,7 @@ __all__ = [
     "ViewerSettings",
     "PassiveRunSettings",
     "PassiveRunResult",
+    "PassiveScenario",
     "PassiveRunHarness",
     "StepHook",
     "TrajectoryLogger",
