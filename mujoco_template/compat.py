@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from collections.abc import Iterable
 
 import mujoco as mj
 import numpy as np
