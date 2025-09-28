@@ -1,18 +1,16 @@
-
-"""Straightforward Skydio X2 LQR example that always uses the passive-run harness."""
-
-from __future__ import annotations
+"""
+Straightforward Skydio X2 LQR example (minimal, control-engineering focused).
+Removes typing/dataclass ceremony; plain Python with clear math and MuJoCo calls.
+"""
 
 import sys
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
-
 
 import numpy as np
 import scipy.linalg
 from scipy.spatial.transform import Rotation
 
+# Ensure repo root on path (so `mujoco_template` resolves when running from examples/)
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
@@ -22,39 +20,66 @@ import mujoco_template as mt
 SCENE_XML = Path(__file__).with_name("scene.xml")
 
 
-@dataclass(frozen=True)
+# -------- Parameters (simple container, manual __init__) ----------------------
 class _DroneParameters:
+    def __init__(
+        self,
+        keyframe="hover",
+        linearization_eps=1e-4,
+        max_steps=4000,
+        duration_seconds=8.0,
+        position_weight=(10.0, 10.0, 10.0),
+        orientation_weight=(10.0, 10.0, 20.0),
+        velocity_weight=(8.0, 8.0, 6.0),
+        angular_velocity_weight=(6.0, 6.0, 10.0),
+        control_weight=2.0,
+        yaw_control_scale=6.0,
+        yaw_proportional_gain=18.0,
+        yaw_derivative_gain=4.5,
+        yaw_integral_gain=4.0,
+        yaw_integral_limit=6.0,
+        clip_controls=True,
+        start_position_m=(0.0, 0.0, 0.7),
+        start_orientation_wxyz=(1.0, 0.0, 0.0, 0.0),
+        start_velocity_mps=(0.0, 0.0, 0.0),
+        start_angular_velocity_radps=(0.0, 0.0, 0.0),
+        goal_position_m=(5.0, -4.0, 2.3),
+        goal_orientation_wxyz=(0.0, 0.0, 0.0, 1.0),
+        goal_velocity_mps=(0.0, 0.0, 0.0),
+        goal_angular_velocity_radps=(0.0, 0.0, 0.0),
+        log_path=Path("drone_lqr.csv"),
+        video_path=Path("drone_lqr.mp4"),
+    ):
+        self.keyframe = keyframe
+        self.linearization_eps = linearization_eps
+        self.max_steps = max_steps
+        self.duration_seconds = duration_seconds
+        self.position_weight = position_weight
+        self.orientation_weight = orientation_weight
+        self.velocity_weight = velocity_weight
+        self.angular_velocity_weight = angular_velocity_weight
+        self.control_weight = control_weight
+        self.yaw_control_scale = yaw_control_scale
+        self.yaw_proportional_gain = yaw_proportional_gain
+        self.yaw_derivative_gain = yaw_derivative_gain
+        self.yaw_integral_gain = yaw_integral_gain
+        self.yaw_integral_limit = yaw_integral_limit
+        self.clip_controls = clip_controls
+        self.start_position_m = start_position_m
+        self.start_orientation_wxyz = start_orientation_wxyz
+        self.start_velocity_mps = start_velocity_mps
+        self.start_angular_velocity_radps = start_angular_velocity_radps
+        self.goal_position_m = goal_position_m
+        self.goal_orientation_wxyz = goal_orientation_wxyz
+        self.goal_velocity_mps = goal_velocity_mps
+        self.goal_angular_velocity_radps = goal_angular_velocity_radps
+        self.log_path = log_path
+        self.video_path = video_path
 
-    keyframe: str = "hover"
-    linearization_eps: float = 1e-4
-    max_steps: int = 4000
-    duration_seconds: float = 8.0
-    position_weight: Sequence[float] = (10.0, 10.0, 10.0)
-    orientation_weight: Sequence[float] = (10.0, 10.0, 20.0)
-    velocity_weight: Sequence[float] = (8.0, 8.0, 6.0)
-    angular_velocity_weight: Sequence[float] = (6.0, 6.0, 10.0)
-    control_weight: float = 2.0
-    yaw_control_scale: float = 6.0
-    yaw_proportional_gain: float = 18.0
-    yaw_derivative_gain: float = 4.5
-    yaw_integral_gain: float = 4.0
-    yaw_integral_limit: float = 6.0
-    clip_controls: bool = True
-    start_position_m: Sequence[float] = (0.0, 0.0, 0.7)
-    start_orientation_wxyz: Sequence[float] = (1.0, 0.0, 0.0, 0.0)
-    start_velocity_mps: Sequence[float] = (0.0, 0.0, 0.0)
-    start_angular_velocity_radps: Sequence[float] = (0.0, 0.0, 0.0)
-    goal_position_m: Sequence[float] = (5.0, -4.0, 2.3)
-    goal_orientation_wxyz: Sequence[float] = (0.0, 0.0, 0.0, 1.0)
-    goal_velocity_mps: Sequence[float] = (0.0, 0.0, 0.0)
-    goal_angular_velocity_radps: Sequence[float] = (0.0, 0.0, 0.0)
-    log_path: Path = Path("drone_lqr.csv")
-    video_path: Path = Path("drone_lqr.mp4")
 
-
-def _quat_from_body_yaw(yaw_deg: float) -> tuple[float, float, float, float]:
-    rotation = Rotation.from_euler("xyz", [0.0, 0.0, yaw_deg], degrees=True)
-    x, y, z, w = rotation.as_quat()
+def _quat_from_body_yaw(yaw_deg):
+    r = Rotation.from_euler("xyz", [0.0, 0.0, yaw_deg], degrees=True)
+    x, y, z, w = r.as_quat()
     return float(w), float(x), float(y), float(z)
 
 
@@ -110,7 +135,8 @@ RUN_SETTINGS = mt.PassiveRunSettings.from_flags(
 )
 
 
-def _broadcast(scale: Sequence[float] | float, size: int) -> np.ndarray:
+# -------- Small helpers -------------------------------------------------------
+def _broadcast(scale, size):
     arr = np.asarray(scale, dtype=float).reshape(-1)
     if arr.size == 1:
         arr = np.repeat(arr, size)
@@ -121,52 +147,56 @@ def _broadcast(scale: Sequence[float] | float, size: int) -> np.ndarray:
     return arr
 
 
-def _solve_lqr(A: np.ndarray, B: np.ndarray, Q: np.ndarray, R: np.ndarray) -> np.ndarray:
-    last_error: Exception | None = None
+def _solve_lqr(A, B, Q, R):
+    last_error = None
     for scale in (1.0, 10.0, 100.0, 1000.0):
         try:
             P = scipy.linalg.solve_discrete_are(A, B, scale * Q, R)
+            # K = (R + B^T P B)^{-1} B^T P A
             return scipy.linalg.solve(R + B.T @ P @ B, B.T @ P @ A, assume_a="sym")
-        except Exception as exc:  # pragma: no cover - numerical fallback
+        except Exception as exc:
             last_error = exc
     raise mt.TemplateError("Failed to compute LQR gains.") from last_error
 
 
-def _compose_qvel(linear: np.ndarray, angular: np.ndarray) -> np.ndarray:
+def _compose_qvel(linear, angular):
     return np.concatenate([linear, angular])
 
 
-def _normalize_quat(quat: np.ndarray) -> np.ndarray:
+def _normalize_quat(quat):
     quat = np.asarray(quat, dtype=float).reshape(4)
-    norm = float(np.linalg.norm(quat))
-    if norm <= 0.0:
+    n = float(np.linalg.norm(quat))
+    if n <= 0.0:
         raise mt.ConfigError("Quaternion must have positive norm.")
-    return quat / norm
+    return quat / n
 
 
-def _normalize_vector(vec: Sequence[float], label: str) -> np.ndarray:
+def _normalize_vector(vec, label):
     arr = np.asarray(vec, dtype=float).reshape(-1)
     if arr.size != 3:
         raise mt.ConfigError(f"{label} must provide exactly 3 entries.")
     return arr
 
 
-def _normalize_position(vec: Sequence[float]) -> np.ndarray:
+def _normalize_position(vec):
     arr = np.asarray(vec, dtype=float).reshape(-1)
     if arr.size != 3:
         raise mt.ConfigError("Positions must provide exactly 3 entries.")
     return arr
 
-def _site_id(model: mt.mj.MjModel, name: str) -> int:
+
+def _site_id(model, name):
     site_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_SITE, name))
     if site_id < 0:
         raise mt.NameLookupError(f"Site not found: {name}")
     return site_id
 
+
+# -------- Controller ----------------------------------------------------------
 class _InlineDroneLQR(mt.Controller):
     capabilities = mt.ControllerCapabilities(control_space=mt.ControlSpace.TORQUE)
 
-    def __init__(self, cfg: _DroneParameters) -> None:
+    def __init__(self, cfg):
         self._cfg = cfg
         self._prepared = False
         self._printed_spectral_radius = False
@@ -175,40 +205,44 @@ class _InlineDroneLQR(mt.Controller):
         self._nv = 0
         self._pos_dim = 0
         self._rot_dim = 0
-        self._qpos_goal: np.ndarray | None = None
-        self._qvel_goal: np.ndarray | None = None
-        self._qpos_start: np.ndarray | None = None
-        self._qvel_start: np.ndarray | None = None
-        self._ctrl_equilibrium: np.ndarray | None = None
-        self._goal_position: np.ndarray | None = None
-        self._goal_orientation: np.ndarray | None = None
-        self._goal_velocity: np.ndarray | None = None
-        self._goal_angular_velocity: np.ndarray | None = None
-        self._K: np.ndarray | None = None
-        self._dq_scratch: np.ndarray | None = None
-        self._dx_scratch: np.ndarray | None = None
-        self._ctrl_delta: np.ndarray | None = None
-        self._ctrl_command: np.ndarray | None = None
-        self._position_feedback_scale: np.ndarray | None = None
-        self._orientation_feedback_scale: np.ndarray | None = None
-        self._velocity_feedback_scale: np.ndarray | None = None
-        self._angular_velocity_feedback_scale: np.ndarray | None = None
+        self._qpos_goal = None
+        self._qvel_goal = None
+        self._qpos_start = None
+        self._qvel_start = None
+        self._ctrl_equilibrium = None
+        self._goal_position = None
+        self._goal_orientation = None
+        self._goal_velocity = None
+        self._goal_angular_velocity = None
+        self._K = None
+        self._dq_scratch = None
+        self._dx_scratch = None
+        self._ctrl_delta = None
+        self._ctrl_command = None
+        self._position_feedback_scale = None
+        self._orientation_feedback_scale = None
+        self._velocity_feedback_scale = None
+        self._angular_velocity_feedback_scale = None
         self._yaw_control_scale = 1.0
-        self._yaw_direction: np.ndarray | None = None
+        self._yaw_direction = None
         self._yaw_direction_norm = 0.0
         self._yaw_proportional_gain = 0.0
         self._yaw_derivative_gain = 0.0
         self._yaw_integral_gain = 0.0
         self._yaw_integral_limit = np.inf
         self._yaw_integral = 0.0
-        self._ctrl_low: np.ndarray | None = None
-        self._ctrl_high: np.ndarray | None = None
+        self._ctrl_low = None
+        self._ctrl_high = None
         self._timestep = 0.0
 
-    def prepare(self, model: mt.mj.MjModel, data: mt.mj.MjData) -> None:
+    def prepare(self, model, data):
         cfg = self._cfg
         if model.nu == 0:
-            raise mt.CompatibilityError("Drone LQR controller requires actuators.")
+            raise mt.compat.CompatibilityError(
+                "Drone LQR controller requires actuators."
+            ) if hasattr(mt, "compat") else mt.CompatibilityError(
+                "Drone LQR controller requires actuators."
+            )
 
         self._prepared = False
         self._nu = int(model.nu)
@@ -217,6 +251,7 @@ class _InlineDroneLQR(mt.Controller):
         self._rot_dim = min(3, max(0, self._nv - self._pos_dim))
         self._timestep = float(model.opt.timestep)
 
+        # Load hover keyframe (equilibrium)
         work = mt.mj.MjData(model)
         keyframe_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_KEY, cfg.keyframe))
         if keyframe_id < 0:
@@ -227,10 +262,13 @@ class _InlineDroneLQR(mt.Controller):
         qpos_hover = np.array(work.qpos, dtype=float)
         ctrl_hover = np.array(work.ctrl[: self._nu], dtype=float)
 
+        # Build goal/start states
         goal_position = _normalize_position(cfg.goal_position_m)
         goal_orientation = _normalize_quat(np.asarray(cfg.goal_orientation_wxyz, dtype=float))
         goal_velocity = _normalize_vector(cfg.goal_velocity_mps, "linear velocity")
-        goal_angular_velocity = _normalize_vector(cfg.goal_angular_velocity_radps, "angular velocity")
+        goal_angular_velocity = _normalize_vector(
+            cfg.goal_angular_velocity_radps, "angular velocity"
+        )
 
         qpos_goal = np.array(qpos_hover, copy=True)
         qpos_goal[:3] = goal_position
@@ -239,7 +277,9 @@ class _InlineDroneLQR(mt.Controller):
         start_position = _normalize_position(cfg.start_position_m)
         start_orientation = _normalize_quat(np.asarray(cfg.start_orientation_wxyz, dtype=float))
         start_velocity = _normalize_vector(cfg.start_velocity_mps, "start linear velocity")
-        start_angular_velocity = _normalize_vector(cfg.start_angular_velocity_radps, "start angular velocity")
+        start_angular_velocity = _normalize_vector(
+            cfg.start_angular_velocity_radps, "start angular velocity"
+        )
 
         qvel_goal = _compose_qvel(goal_velocity, goal_angular_velocity)
         qvel_start = _compose_qvel(start_velocity, start_angular_velocity)
@@ -248,6 +288,7 @@ class _InlineDroneLQR(mt.Controller):
         qpos_start[:3] = start_position
         qpos_start[3:7] = start_orientation
 
+        # Linearize at goal equilibrium (with hover control)
         work.qpos[:] = qpos_goal
         work.qvel[:] = qvel_goal
         work.ctrl[: self._nu] = ctrl_hover
@@ -258,6 +299,7 @@ class _InlineDroneLQR(mt.Controller):
             raise mt.ConfigError("linearization_eps must be positive.")
         A, B = mt.linearize_discrete(model, work, eps=eps)
 
+        # LQR design
         Q = np.diag(
             np.concatenate(
                 [
@@ -281,6 +323,7 @@ class _InlineDroneLQR(mt.Controller):
             self._printed_spectral_radius = True
             self._last_spectral_radius = spectral_radius
 
+        # Cache
         self._qpos_goal = qpos_goal
         self._qvel_goal = qvel_goal
         self._qpos_start = qpos_start
@@ -291,6 +334,8 @@ class _InlineDroneLQR(mt.Controller):
         self._goal_velocity = goal_velocity
         self._goal_angular_velocity = goal_angular_velocity
         self._K = K
+
+        # Scratch and scaling
         self._dq_scratch = np.zeros(self._nv)
         self._dx_scratch = np.zeros(2 * self._nv)
         self._ctrl_delta = np.zeros(self._nu)
@@ -304,6 +349,7 @@ class _InlineDroneLQR(mt.Controller):
             self._orientation_feedback_scale = np.zeros(0)
             self._angular_velocity_feedback_scale = np.zeros(0)
 
+        # Yaw shaping (optional)
         self._yaw_control_scale = float(cfg.yaw_control_scale)
         if self._yaw_control_scale <= 0.0:
             raise mt.ConfigError("yaw_control_scale must be positive.")
@@ -332,49 +378,53 @@ class _InlineDroneLQR(mt.Controller):
                 self._yaw_direction = candidate
                 self._yaw_direction_norm = norm
 
+        # Actuator limits (optional)
         self._ctrl_low = None
         self._ctrl_high = None
-        if cfg.clip_controls and hasattr(model, "actuator_ctrllimited") and hasattr(model, "actuator_ctrlrange"):
+        if cfg.clip_controls and hasattr(model, "actuator_ctrllimited") and hasattr(
+            model, "actuator_ctrlrange"
+        ):
             limited = np.asarray(model.actuator_ctrllimited, dtype=bool)
             ranges = np.asarray(model.actuator_ctrlrange, dtype=float)
             if ranges.shape == (self._nu, 2):
                 self._ctrl_low = np.where(limited, ranges[:, 0], -np.inf)
                 self._ctrl_high = np.where(limited, ranges[:, 1], np.inf)
 
+        # Initialize sim state
         data.qpos[:] = qpos_start
         data.qvel[:] = qvel_start
         data.ctrl[: self._nu] = ctrl_hover
         mt.mj.mj_forward(model, data)
         self._prepared = True
 
-    def __call__(self, model: mt.mj.MjModel, data: mt.mj.MjData, _t: float) -> None:
+    def __call__(self, model, data, _t):
         if not self._prepared:
             raise mt.TemplateError("Controller must be prepared before use.")
-        assert self._qpos_goal is not None
-        assert self._qvel_goal is not None
-        assert self._K is not None
-        assert self._dq_scratch is not None
-        assert self._dx_scratch is not None
-        assert self._ctrl_delta is not None
-        assert self._ctrl_command is not None
-
-        mt.mj.mj_differentiatePos(model, self._dq_scratch, 1.0, self._qpos_goal, data.qpos)
+        # Shorthands
+        mt.mj.mj_differentiatePos(
+            model, self._dq_scratch, 1.0, self._qpos_goal, data.qpos
+        )
         self._dx_scratch[: self._nv] = self._dq_scratch
         self._dx_scratch[self._nv :] = data.qvel - self._qvel_goal
 
-        if self._pos_dim > 0 and self._position_feedback_scale is not None:
+        # Optional per-axis scaling
+        if self._pos_dim > 0:
             self._dx_scratch[: self._pos_dim] *= self._position_feedback_scale
-            self._dx_scratch[self._nv : self._nv + self._pos_dim] *= self._velocity_feedback_scale
-        if self._rot_dim > 0 and self._orientation_feedback_scale is not None:
-            pos_start = self._pos_dim
-            pos_stop = pos_start + self._rot_dim
-            self._dx_scratch[pos_start:pos_stop] *= self._orientation_feedback_scale
-            vel_start = self._nv + self._pos_dim
-            vel_stop = vel_start + self._rot_dim
-            self._dx_scratch[vel_start:vel_stop] *= self._angular_velocity_feedback_scale
+            self._dx_scratch[self._nv : self._nv + self._pos_dim] *= (
+                self._velocity_feedback_scale
+            )
+        if self._rot_dim > 0:
+            ps = self._pos_dim
+            pe = ps + self._rot_dim
+            self._dx_scratch[ps:pe] *= self._orientation_feedback_scale
+            vs = self._nv + self._pos_dim
+            ve = vs + self._rot_dim
+            self._dx_scratch[vs:ve] *= self._angular_velocity_feedback_scale
 
+        # LQR
         self._ctrl_delta[:] = self._K @ self._dx_scratch
 
+        # Yaw PID shaping along identified control direction
         if (
             self._yaw_direction is not None
             and self._yaw_direction_norm > 0.0
@@ -387,9 +437,15 @@ class _InlineDroneLQR(mt.Controller):
             if self._yaw_integral_gain > 0.0:
                 self._yaw_integral += yaw_error * self._timestep
                 self._yaw_integral = float(
-                    np.clip(self._yaw_integral, -self._yaw_integral_limit, self._yaw_integral_limit)
+                    np.clip(
+                        self._yaw_integral,
+                        -self._yaw_integral_limit,
+                        self._yaw_integral_limit,
+                    )
                 )
-                self._ctrl_delta += self._yaw_integral_gain * self._yaw_integral * self._yaw_direction
+                self._ctrl_delta += (
+                    self._yaw_integral_gain * self._yaw_integral * self._yaw_direction
+                )
             if self._yaw_proportional_gain > 0.0 or self._yaw_derivative_gain > 0.0:
                 yaw_feedback = (
                     self._yaw_proportional_gain * yaw_error
@@ -397,57 +453,59 @@ class _InlineDroneLQR(mt.Controller):
                 )
                 self._ctrl_delta += yaw_feedback * self._yaw_direction
             if self._yaw_control_scale != 1.0:
-                yaw_component = float(np.dot(self._ctrl_delta, self._yaw_direction)) / self._yaw_direction_norm
-                self._ctrl_delta += (self._yaw_control_scale - 1.0) * yaw_component * self._yaw_direction
+                yaw_component = float(
+                    np.dot(self._ctrl_delta, self._yaw_direction)
+                ) / self._yaw_direction_norm
+                self._ctrl_delta += (
+                    (self._yaw_control_scale - 1.0)
+                    * yaw_component
+                    * self._yaw_direction
+                )
 
-        assert self._ctrl_equilibrium is not None
+        # Command = equilibrium - delta; apply limits if known
         self._ctrl_command[:] = self._ctrl_equilibrium - self._ctrl_delta
         if self._ctrl_low is not None and self._ctrl_high is not None:
-            np.clip(self._ctrl_command, self._ctrl_low, self._ctrl_high, out=self._ctrl_command)
+            np.clip(
+                self._ctrl_command, self._ctrl_low, self._ctrl_high, out=self._ctrl_command
+            )
         data.ctrl[: self._nu] = self._ctrl_command
 
+    # Convenience properties for seeding and reporting
     @property
-    def qpos_start(self) -> np.ndarray:
-        assert self._qpos_start is not None
+    def qpos_start(self):
         return np.array(self._qpos_start, copy=True)
 
     @property
-    def qvel_start(self) -> np.ndarray:
-        assert self._qvel_start is not None
+    def qvel_start(self):
         return np.array(self._qvel_start, copy=True)
 
     @property
-    def ctrl_equilibrium(self) -> np.ndarray:
-        assert self._ctrl_equilibrium is not None
+    def ctrl_equilibrium(self):
         return np.array(self._ctrl_equilibrium, copy=True)
 
     @property
-    def goal_position(self) -> np.ndarray:
-        assert self._goal_position is not None
+    def goal_position(self):
         return np.array(self._goal_position, copy=True)
 
     @property
-    def goal_orientation(self) -> np.ndarray:
-        assert self._goal_orientation is not None
+    def goal_orientation(self):
         return np.array(self._goal_orientation, copy=True)
 
     @property
-    def goal_velocity(self) -> np.ndarray:
-        assert self._goal_velocity is not None
+    def goal_velocity(self):
         return np.array(self._goal_velocity, copy=True)
 
     @property
-    def goal_angular_velocity(self) -> np.ndarray:
-        assert self._goal_angular_velocity is not None
+    def goal_angular_velocity(self):
         return np.array(self._goal_angular_velocity, copy=True)
 
     @property
-    def qvel_goal(self) -> np.ndarray:
-        assert self._qvel_goal is not None
+    def qvel_goal(self):
         return np.array(self._qvel_goal, copy=True)
 
 
-def _make_env() -> mt.Env:
+# -------- Env, harness, probes ------------------------------------------------
+def _make_env():
     controller = _InlineDroneLQR(PARAMS)
     obs_spec = mt.ObservationSpec(include_ctrl=True, include_time=True)
     return mt.Env.from_xml_path(
@@ -458,7 +516,7 @@ def _make_env() -> mt.Env:
     )
 
 
-def _seed_env(env: mt.Env) -> None:
+def _seed_env(env):
     controller = env.controller
     if not isinstance(controller, _InlineDroneLQR):
         raise mt.TemplateError("Inline drone harness requires the bundled controller.")
@@ -469,16 +527,16 @@ def _seed_env(env: mt.Env) -> None:
     env.handle.forward()
 
 
-def _make_navigation_probes(env: mt.Env) -> Sequence[mt.DataProbe]:
+def _make_navigation_probes(env):
     controller = env.controller
     if not isinstance(controller, _InlineDroneLQR):
         raise mt.TemplateError("Inline drone harness requires the bundled controller.")
     imu_site = _site_id(env.model, "imu")
 
-    def site_component(axis: int):
+    def site_component(axis):
         return lambda e, _result=None: float(e.data.site_xpos[imu_site, axis])
 
-    def goal_distance(e: mt.Env, _result=None) -> float:
+    def goal_distance(e, _result=None):
         position = e.data.site_xpos[imu_site]
         return float(np.linalg.norm(position - controller.goal_position))
 
@@ -499,7 +557,8 @@ HARNESS = mt.PassiveRunHarness(
 )
 
 
-def summarize(result: mt.PassiveRunResult) -> None:
+# -------- Reporting -----------------------------------------------------------
+def summarize(result):
     controller = result.env.controller
     if not isinstance(controller, _InlineDroneLQR):
         raise mt.TemplateError("Inline drone harness requires the bundled controller.")
@@ -567,7 +626,8 @@ def summarize(result: mt.PassiveRunResult) -> None:
     )
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+# -------- CLI -----------------------------------------------------------------
+def main(argv=None):
     cfg = PARAMS
     print(
         "Preparing drone LQR controller (keyframe {} | target [{:.2f}, {:.2f}, {:.2f}] m)".format(
@@ -603,12 +663,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     summarize(result)
 
 
-if __name__ == "__main__":  # pragma: no cover - CLI entry point
+if __name__ == "__main__":  # pragma: no cover
     try:
         main(sys.argv[1:])
-    except KeyboardInterrupt:  # pragma: no cover - user interrupt
+    except KeyboardInterrupt:  # pragma: no cover
         sys.exit(130)
 
 
 __all__ = ["RUN_SETTINGS", "HARNESS", "summarize", "main"]
-
