@@ -1,20 +1,14 @@
 import sys
-from importlib import import_module
 from pathlib import Path
 
 import numpy as np
 
-if __package__ is None or __package__ == "":  # pragma: no cover - direct script execution
-    sys.path.append(str(Path(__file__).resolve().parents[2]))
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
 
-try:  # Support both `python -m` and direct script execution.
-    from .drone_config import CONFIG
-    from .scenarios import HARNESS, summarize
-except ImportError:  # pragma: no cover - fallback for `python examples/drone/run_lqr.py`
-    CONFIG = import_module("examples.drone.drone_config").CONFIG  # type: ignore[attr-defined]
-    _scenarios = import_module("examples.drone.scenarios")
-    HARNESS = _scenarios.HARNESS
-    summarize = _scenarios.summarize
+from examples.drone.drone_config import CONFIG
+from examples.drone.scenarios import HARNESS, summarize
 
 
 def main(argv=None):

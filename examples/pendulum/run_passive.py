@@ -1,18 +1,12 @@
 import sys
-from importlib import import_module
 from pathlib import Path
 
-if __package__ is None or __package__ == "":  # pragma: no cover - direct script execution
-    sys.path.append(str(Path(__file__).resolve().parents[2]))
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
 
-try:  # Support both `python -m` and direct script execution.
-    from .pendulum_passive_config import CONFIG
-    from .scenarios import PASSIVE_HARNESS, summarize_passive
-except ImportError:  # pragma: no cover - fallback for `python examples/pendulum/run_passive.py`
-    CONFIG = import_module("examples.pendulum.pendulum_passive_config").CONFIG  # type: ignore[attr-defined]
-    _scenarios = import_module("examples.pendulum.scenarios")
-    PASSIVE_HARNESS = _scenarios.PASSIVE_HARNESS
-    summarize_passive = _scenarios.summarize_passive
+from examples.pendulum.pendulum_passive_config import CONFIG
+from examples.pendulum.scenarios import PASSIVE_HARNESS, summarize_passive
 
 
 def main(argv=None):
