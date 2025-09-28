@@ -1,5 +1,5 @@
 """Cartpole balance example configured for researchers."""
 
-from .cartpole_config import CONFIG, ControllerConfig, ExampleConfig, InitialStateConfig
+from .cartpole_config import CONFIG, CONTROLLER, INITIAL_STATE, RUN_SETTINGS
 
-__all__ = ["CONFIG", "ControllerConfig", "ExampleConfig", "InitialStateConfig"]
+__all__ = ["CONFIG", "RUN_SETTINGS", "INITIAL_STATE", "CONTROLLER"]

@@ -1,17 +1,17 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import scipy.linalg
 
 import mujoco_template as mt
 
-from ..humanoid_config import ControllerConfig
-
 
 class HumanoidLQRController:
     """LQR controller that balances the MuJoCo humanoid on its left leg."""
 
-    def __init__(self, config: ControllerConfig) -> None:
+    def __init__(self, config: SimpleNamespace) -> None:
         self.capabilities = mt.ControllerCapabilities(control_space=mt.ControlSpace.TORQUE)
         self._config = config
         self._prepared = False
@@ -173,7 +173,7 @@ class HumanoidLQRController:
 
         data.ctrl[:] = self._ctrl_buffer
 
-    def _initialize_perturbations(self, model: mt.mj.MjModel, cfg: ControllerConfig) -> None:
+    def _initialize_perturbations(self, model: mt.mj.MjModel, cfg: SimpleNamespace) -> None:
         self._ctrl_std = None
         self._perturbations = None
         self._perturb_index = 0

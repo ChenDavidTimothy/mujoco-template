@@ -1,9 +1,20 @@
 from __future__ import annotations
 
 import sys
+from importlib import import_module
+from pathlib import Path
 
-from .pendulum_config import CONFIG
-from .scenarios import PD_HARNESS, summarize_pd
+if __package__ is None or __package__ == "":  # pragma: no cover - direct script execution
+    sys.path.append(str(Path(__file__).resolve().parents[2]))
+
+try:  # Support both `python -m` and direct script execution.
+    from .pendulum_config import CONFIG
+    from .scenarios import PD_HARNESS, summarize_pd
+except ImportError:  # pragma: no cover - fallback for `python examples/pendulum/run_pd.py`
+    CONFIG = import_module("examples.pendulum.pendulum_config").CONFIG  # type: ignore[attr-defined]
+    _scenarios = import_module("examples.pendulum.scenarios")
+    PD_HARNESS = _scenarios.PD_HARNESS
+    summarize_pd = _scenarios.summarize_pd
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -15,7 +26,7 @@ def main(argv: list[str] | None = None) -> None:
         )
     )
 
-    result = PD_HARNESS.run_from_cli(CONFIG.run.build(), args=argv)
+    result = PD_HARNESS.run_from_cli(CONFIG.run, args=argv)
     summarize_pd(result)
 
 

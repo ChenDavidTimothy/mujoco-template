@@ -1,16 +1,16 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 
 import mujoco_template as mt
-
-from ..cartpole_config import ControllerConfig
 
 
 class CartPolePIDController:
     """PID balance controller applying horizontal force to the cart."""
 
-    def __init__(self, config: ControllerConfig) -> None:
+    def __init__(self, config: SimpleNamespace) -> None:
         self.capabilities = mt.ControllerCapabilities(control_space=mt.ControlSpace.TORQUE)
         self.angle_kp = float(config.angle_kp)
         self.angle_kd = float(config.angle_kd)

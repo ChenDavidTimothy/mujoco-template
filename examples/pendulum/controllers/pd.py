@@ -1,16 +1,16 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 
 import mujoco_template as mt
-
-from ..pendulum_config import ControllerConfig
 
 
 class PendulumPDController:
     """Simple PD torque controller that stabilizes the pendulum upright."""
 
-    def __init__(self, config: ControllerConfig) -> None:
+    def __init__(self, config: SimpleNamespace) -> None:
         self.capabilities = mt.ControllerCapabilities(control_space=mt.ControlSpace.TORQUE)
         self.kp = float(config.kp)
         self.kd = float(config.kd)

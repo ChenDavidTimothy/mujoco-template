@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Iterable
+from types import SimpleNamespace
 
 import numpy as np
 import scipy.linalg
@@ -8,15 +9,13 @@ from numpy.linalg import LinAlgError
 
 import mujoco_template as mt
 
-from ..drone_config import ControllerConfig
-
 
 class DroneLQRController:
     """Linear-quadratic regulator that steers the drone to a Cartesian target."""
 
     def __init__(
         self,
-        config: ControllerConfig,
+        config: SimpleNamespace,
         *,
         start_position: Iterable[float] | None = None,
         start_orientation: Iterable[float] | None = None,
@@ -335,7 +334,7 @@ class DroneLQRController:
         angular = np.asarray(angular, dtype=float).reshape(-1)
         return np.concatenate([linear, angular])
 
-    def _build_state_cost(self, cfg: ControllerConfig) -> np.ndarray:
+    def _build_state_cost(self, cfg: SimpleNamespace) -> np.ndarray:
         pos_weights = self._resolve_feedback_scale(cfg.position_weight, self._pos_dim, "position weight")
         rot_weights = self._resolve_feedback_scale(cfg.orientation_weight, self._rot_dim, "orientation weight")
         vel_weights = self._resolve_feedback_scale(cfg.velocity_weight, self._pos_dim, "velocity weight")
@@ -347,7 +346,7 @@ class DroneLQRController:
         qd_weights = np.concatenate([vel_weights, ang_weights])
         return np.diag(np.concatenate([q_weights, qd_weights]))
 
-    def _build_ctrl_cost(self, cfg: ControllerConfig) -> np.ndarray:
+    def _build_ctrl_cost(self, cfg: SimpleNamespace) -> np.ndarray:
         control_weight = float(cfg.control_weight)
         if control_weight < 0.0:
             raise mt.ConfigError("control_weight must be non-negative.")
