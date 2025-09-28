@@ -788,7 +788,7 @@ def test_passive_settings_from_flags_merges_overrides(tmp_path: Path) -> None:
         viewer=True,
         video=True,
         logging=False,
-        simulation_overrides={"max_steps": 42, "sample_stride": 5},
+        simulation_overrides={"max_steps": 42, "duration_seconds": 1.25},
         video_overrides={"path": video_path, "fps": 24.0},
         viewer_overrides={"duration_seconds": 1.5},
         logging_overrides={"path": log_path, "store_rows": True},
@@ -800,7 +800,7 @@ def test_passive_settings_from_flags_merges_overrides(tmp_path: Path) -> None:
     assert settings.video.path == video_path
     assert settings.video.fps == pytest.approx(24.0)
     assert settings.simulation.max_steps == 42
-    assert settings.simulation.sample_stride == 5
+    assert settings.simulation.duration_seconds == pytest.approx(1.25)
     assert settings.logging.enabled is False
     assert settings.logging.path == log_path
     assert settings.logging.store_rows is True

@@ -23,6 +23,9 @@ include-package-data = true
 [tool.setuptools.package-data]
 "mujoco_template" = ["mujoco.pyi"]
 
+[tool.pytest.ini_options]
+pythonpath = "."
+
 [tool.mypy]
 strict = true
 warn_return_any = true

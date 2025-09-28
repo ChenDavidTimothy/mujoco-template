@@ -10,7 +10,6 @@ RUN_SETTINGS = mt.PassiveRunSettings.from_flags(
     simulation_overrides=dict(
         max_steps=400,  # Positive integer >=1 controlling the hard stop on physics steps.
         duration_seconds=None,  # None for unlimited wall-clock time; any positive float caps runtime in seconds.
-        sample_stride=80,  # Positive integer >=1; 1 stores every step, higher values decimate the log.
     ),
     video_overrides=dict(
         path=Path("pendulum.mp4"),  # Path/str for the exported clip (use different extensions or directories as desired).

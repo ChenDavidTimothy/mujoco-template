@@ -148,8 +148,6 @@ def summarize(result):
 
     columns = _resolve_primary_columns(result.env.model)
     column_index = recorder.column_index
-    stride = max(1, result.settings.simulation.sample_stride)
-
     time_idx = column_index[columns["time"]]
     cart_pos_idx = column_index[columns["cart_pos"]]
     cart_vel_idx = column_index[columns["cart_vel"]]
@@ -158,8 +156,7 @@ def summarize(result):
     force_idx = column_index[columns["force"]]
     tip_z_idx = column_index[columns["tip_z"]]
 
-    for idx in range(0, len(rows), stride):
-        row = rows[idx]
+    for row in rows:
         print(
             "t={:5.2f}s cart={:6.3f}m cartdot={:6.3f}m/s pole={:6.2f}deg poledot={:6.2f}deg/s force={:6.2f}N tip_z={:6.3f}m".format(
                 float(row[time_idx]),

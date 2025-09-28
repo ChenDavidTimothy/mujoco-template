@@ -12,7 +12,6 @@ RUN_SETTINGS = mt.PassiveRunSettings.from_flags(
     simulation_overrides=dict(
         max_steps=4000,  # Positive integer >=1; bump upward for longer flights before forced stop.
         duration_seconds=8.0,  # Either None for unlimited wall-clock time or any positive float seconds cap.
-        sample_stride=80,  # Positive integer >=1; lower numbers store denser telemetry, higher sparsify logs.
     ),
     video_overrides=dict(
         path=Path("drone_lqr.mp4"),  # Any Path/str target (e.g. "outputs/run1.mp4" or alternate container extensions).

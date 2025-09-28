@@ -100,11 +100,10 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class SimulationSettings:
-    """Control maximum steps, duration, and sampling cadence for passive runs."""
+    """Control maximum steps and duration for passive runs."""
 
     max_steps: int = 2000
     duration_seconds: float | None = None
-    sample_stride: int = 50
 
     def __post_init__(self) -> None:
         if self.max_steps < 1:
@@ -113,8 +112,6 @@ class SimulationSettings:
             raise ConfigError(
                 "SimulationSettings.duration_seconds must be > 0 when provided"
             )
-        if self.sample_stride < 1:
-            raise ConfigError("SimulationSettings.sample_stride must be >= 1")
 
 
 @dataclass(frozen=True)
