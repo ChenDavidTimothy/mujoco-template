@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import sys
 from importlib import import_module
 from pathlib import Path
@@ -17,7 +15,7 @@ except ImportError:  # pragma: no cover - fallback for `python examples/pendulum
     summarize_passive = _scenarios.summarize_passive
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv=None):
     init_cfg = CONFIG.initial_state
     print(
         "Initial pendulum angle: {:.2f} deg; velocity: {:.2f} deg/s".format(

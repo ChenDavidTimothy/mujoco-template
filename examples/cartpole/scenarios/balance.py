@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-from types import SimpleNamespace
-
 import numpy as np
 
 import mujoco_template as mt
@@ -11,14 +7,14 @@ from ..cartpole_config import CONFIG
 from ..controllers import CartPolePIDController
 
 
-def _require_site_id(model: mt.mj.MjModel, name: str) -> int:
+def _require_site_id(model, name):
     site_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_SITE, name))
     if site_id < 0:
         raise mt.NameLookupError(f"Site not found in model: {name}")
     return site_id
 
 
-def _resolve_joint_label(model: mt.mj.MjModel, name: str) -> str:
+def _resolve_joint_label(model, name):
     joint_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_JOINT, name))
     if joint_id < 0:
         raise mt.NameLookupError(f"Joint not found in model: {name}")
@@ -26,7 +22,7 @@ def _resolve_joint_label(model: mt.mj.MjModel, name: str) -> str:
     return resolved if resolved is not None else f"joint_{joint_id}"
 
 
-def _resolve_actuator_label(model: mt.mj.MjModel, name: str) -> str:
+def _resolve_actuator_label(model, name):
     actuator_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_ACTUATOR, name))
     if actuator_id < 0:
         raise mt.NameLookupError(f"Actuator not found in model: {name}")
@@ -34,7 +30,7 @@ def _resolve_actuator_label(model: mt.mj.MjModel, name: str) -> str:
     return resolved if resolved is not None else f"actuator_{actuator_id}"
 
 
-def _make_tip_probes(env: mt.Env) -> tuple[mt.DataProbe, ...]:
+def _make_tip_probes(env):
     tip_id = _require_site_id(env.model, "tip")
     return (
         mt.DataProbe("tip_x_m", lambda e, _r, sid=tip_id: float(e.data.site_xpos[sid, 0])),
@@ -42,7 +38,7 @@ def _make_tip_probes(env: mt.Env) -> tuple[mt.DataProbe, ...]:
     )
 
 
-def _resolve_primary_columns(model: mt.mj.MjModel) -> dict[str, str]:
+def _resolve_primary_columns(model):
     slider_label = _resolve_joint_label(model, "slider")
     hinge_label = _resolve_joint_label(model, "hinge")
     actuator_label = _resolve_actuator_label(model, "cart_force")
@@ -58,7 +54,7 @@ def _resolve_primary_columns(model: mt.mj.MjModel) -> dict[str, str]:
     }
 
 
-def build_env(config: SimpleNamespace = CONFIG) -> mt.Env:
+def build_env(config=CONFIG):
     controller = CartPolePIDController(config.controller)
     obs_spec = mt.ObservationSpec(
         include_ctrl=True,
@@ -69,7 +65,7 @@ def build_env(config: SimpleNamespace = CONFIG) -> mt.Env:
     return make_env(obs_spec=obs_spec, controller=controller)
 
 
-def seed_env(env: mt.Env, config: SimpleNamespace = CONFIG) -> None:
+def seed_env(env, config=CONFIG):
     seed_cfg = config.initial_state
     initialize_state(
         env,
@@ -80,7 +76,7 @@ def seed_env(env: mt.Env, config: SimpleNamespace = CONFIG) -> None:
     )
 
 
-def summarize(result: mt.PassiveRunResult) -> None:
+def summarize(result):
     recorder = result.recorder
     rows = recorder.rows
     if not rows:
