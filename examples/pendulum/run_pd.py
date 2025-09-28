@@ -1,18 +1,12 @@
 import sys
-from importlib import import_module
 from pathlib import Path
 
-if __package__ is None or __package__ == "":  # pragma: no cover - direct script execution
-    sys.path.append(str(Path(__file__).resolve().parents[2]))
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
 
-try:  # Support both `python -m` and direct script execution.
-    from .pendulum_config import CONFIG
-    from .scenarios import PD_HARNESS, summarize_pd
-except ImportError:  # pragma: no cover - fallback for `python examples/pendulum/run_pd.py`
-    CONFIG = import_module("examples.pendulum.pendulum_config").CONFIG  # type: ignore[attr-defined]
-    _scenarios = import_module("examples.pendulum.scenarios")
-    PD_HARNESS = _scenarios.PD_HARNESS
-    summarize_pd = _scenarios.summarize_pd
+from examples.pendulum.pendulum_config import CONFIG
+from examples.pendulum.scenarios import PD_HARNESS, summarize_pd
 
 
 def main(argv=None):
