@@ -7,7 +7,7 @@ import warnings
 import mujoco as mj
 import numpy as np
 
-from ._typing import InfoDict, Observation
+from ._typing import InfoDict, Observation, JacobiansDict
 from .compat import check_controller_compat
 from .control import Controller
 from .exceptions import ConfigError, TemplateError
@@ -158,20 +158,43 @@ class Env:
             info["compat_warnings"] = list(self._compat_warnings)
             self._added_warnings = True
 
+        linearization_history_A: list[np.ndarray] = []
+        linearization_history_B: list[np.ndarray] = []
+        jacobian_history: list[JacobiansDict] = []
+
         for _ in range(n):
             if self.controller is not None and (self._substep % self.control_decimation) == 0:
                 self.controller(self.model, self.data, float(self.data.time))
                 caps = self.controller.capabilities
                 if caps.needs_linearization:
                     A, B = linearize_discrete(self.model, self.data, use_native=True)
-                    info["A"] = A
-                    info["B"] = B
+                    linearization_history_A.append(A)
+                    linearization_history_B.append(B)
                 if caps.needs_jacobians:
-                    info["jacobians"] = compute_requested_jacobians(
+                    jacobians = compute_requested_jacobians(
                         self.model, self.data, caps.needs_jacobians
                     )
+                    jacobian_history.append(jacobians)
             self.handle.step()
             self._substep += 1
+
+        if linearization_history_A:
+            info["A"] = (
+                linearization_history_A[0]
+                if len(linearization_history_A) == 1
+                else linearization_history_A
+            )
+            info["B"] = (
+                linearization_history_B[0]
+                if len(linearization_history_B) == 1
+                else linearization_history_B
+            )
+        if jacobian_history:
+            info["jacobians"] = (
+                jacobian_history[0]
+                if len(jacobian_history) == 1
+                else jacobian_history
+            )
 
         obs_next: Observation | None
         if return_obs:
