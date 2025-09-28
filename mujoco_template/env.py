@@ -29,11 +29,11 @@ class Env:
     def __init__(
         self,
         handle: ModelHandle,
-        obs_spec: ObservationSpec = ObservationSpec(),
+        obs_spec: ObservationSpec | None = None,
         controller: Controller | None = None,
-        reward_fn: Callable[[mj.MjModel, mj.MjData, Observation], float] | None = None,
-        done_fn: Callable[[mj.MjModel, mj.MjData, Observation], bool] | None = None,
-        info_fn: Callable[[mj.MjModel, mj.MjData, Observation], dict[str, str | float | int | np.ndarray]] | None = None,
+        reward_fn: Callable[[mj.MjModel, mj.MjData, Observation | None], float] | None = None,
+        done_fn: Callable[[mj.MjModel, mj.MjData, Observation | None], bool] | None = None,
+        info_fn: Callable[[mj.MjModel, mj.MjData, Observation | None], dict[str, str | float | int | np.ndarray]] | None = None,
         enabled_groups: Iterable[int] | None = None,
         control_decimation: int = 1,
     ):
@@ -43,7 +43,12 @@ class Env:
         self.handle = handle
         self.model = handle.model
         self.data = handle.data
-        self.extractor = ObservationExtractor(handle.model, obs_spec)
+        self._obs_spec: ObservationSpec | None = obs_spec
+        self.extractor: ObservationExtractor | None
+        if obs_spec is None:
+            self.extractor = None
+        else:
+            self.extractor = ObservationExtractor(handle.model, obs_spec)
         self.controller = controller
         self.reward_fn = reward_fn
         self.done_fn = done_fn
@@ -98,9 +103,9 @@ class Env:
         *,
         obs_spec: ObservationSpec | None = None,
         controller: Controller | None = None,
-        reward_fn: Callable[[mj.MjModel, mj.MjData, Observation], float] | None = None,
-        done_fn: Callable[[mj.MjModel, mj.MjData, Observation], bool] | None = None,
-        info_fn: Callable[[mj.MjModel, mj.MjData, Observation], InfoDict] | None = None,
+        reward_fn: Callable[[mj.MjModel, mj.MjData, Observation | None], float] | None = None,
+        done_fn: Callable[[mj.MjModel, mj.MjData, Observation | None], bool] | None = None,
+        info_fn: Callable[[mj.MjModel, mj.MjData, Observation | None], InfoDict] | None = None,
         enabled_groups: Iterable[int] | None = None,
         control_decimation: int = 1,
         auto_reset: bool = True,
@@ -137,6 +142,13 @@ class Env:
 
         return env
 
+    def _ensure_extractor(self) -> ObservationExtractor:
+        if self.extractor is None:
+            if self._obs_spec is None:
+                self._obs_spec = ObservationSpec()
+            self.extractor = ObservationExtractor(self.model, self._obs_spec)
+        return self.extractor
+
     def reset(self, keyframe: int | str | None = None) -> Observation:
         if keyframe is None:
             self.handle.reset()
@@ -147,7 +159,7 @@ class Env:
         self._added_warnings = False
         if self.controller is not None:
             self.controller.prepare(self.model, self.data)
-        return self.extractor(self.data)
+        return self._ensure_extractor()(self.data)
 
     def step(self, n: int = 1, *, return_obs: bool = True) -> StepResult:
         if n < 1:
@@ -196,21 +208,22 @@ class Env:
                 else jacobian_history
             )
 
-        obs_next: Observation | None
+        obs_for_hooks: Observation | None = None
+        obs_next: Observation | None = None
         if return_obs:
-            obs_next = self.extractor(self.data)
-        else:
-            obs_next = None
+            obs_for_hooks = self._ensure_extractor()(self.data)
+            obs_next = obs_for_hooks
 
         reward: float | None = None
         done = False
-        if return_obs and obs_next is not None:
+        helpers_active = any((self.reward_fn, self.done_fn, self.info_fn))
+        if helpers_active:
             if self.reward_fn:
-                reward = self.reward_fn(self.model, self.data, obs_next)
+                reward = self.reward_fn(self.model, self.data, obs_for_hooks)
             if self.done_fn:
-                done = bool(self.done_fn(self.model, self.data, obs_next))
+                done = bool(self.done_fn(self.model, self.data, obs_for_hooks))
             if self.info_fn:
-                extra = self.info_fn(self.model, self.data, obs_next)
+                extra = self.info_fn(self.model, self.data, obs_for_hooks)
                 for key in extra:
                     if key in info:
                         raise TemplateError(f"info key collision: {key}")
