@@ -3,10 +3,10 @@ from types import SimpleNamespace
 
 import mujoco_template as mt
 
-RUN_SETTINGS = mt.PassiveRunSettings(
-    simulation=mt.SimulationSettings(max_steps=6000, duration_seconds=6.0, sample_stride=120),
-    video=mt.VideoSettings(
-        enabled=False,
+RUN_SETTINGS = mt.PassiveRunSettings.from_flags(
+    logging=True,
+    simulation_overrides=dict(max_steps=6000, duration_seconds=6.0, sample_stride=120),
+    video_overrides=dict(
         path=Path("humanoid_lqr.mp4"),
         fps=60.0,
         width=1280,
@@ -40,8 +40,7 @@ RUN_SETTINGS = mt.PassiveRunSettings(
             ),
         ),
     ),
-    viewer=mt.ViewerSettings(enabled=False, duration_seconds=None),
-    logging=mt.LoggingSettings(enabled=False, path=Path("humanoid_lqr.csv"), store_rows=True),
+    logging_overrides=dict(path=Path("humanoid_lqr.csv"), store_rows=True),
 )
 
 CONTROLLER = SimpleNamespace(

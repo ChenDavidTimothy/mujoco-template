@@ -3,7 +3,7 @@ import math
 import shutil
 import warnings
 from pathlib import Path
-from typing import Callable, TypeVar, cast
+from typing import Callable, Sequence, TypeVar, cast
 import numpy as np
 import mujoco as mj
 import pytest
@@ -595,6 +595,115 @@ def _install_dummy_recorder(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(logging_mod, "StateControlRecorder", DummyRecorder)
 
+
+def test_passive_settings_from_flags_merges_overrides(tmp_path: Path) -> None:
+    video_path = tmp_path / "video.mp4"
+    log_path = tmp_path / "log.csv"
+
+    settings = PassiveRunSettings.from_flags(
+        viewer=True,
+        video=True,
+        logging=False,
+        simulation_overrides={"max_steps": 42, "sample_stride": 5},
+        video_overrides={"path": video_path, "fps": 24.0},
+        viewer_overrides={"duration_seconds": 1.5},
+        logging_overrides={"path": log_path, "store_rows": True},
+    )
+
+    assert settings.viewer.enabled is True
+    assert settings.viewer.duration_seconds == pytest.approx(1.5)
+    assert settings.video.enabled is True
+    assert settings.video.path == video_path
+    assert settings.video.fps == pytest.approx(24.0)
+    assert settings.simulation.max_steps == 42
+    assert settings.simulation.sample_stride == 5
+    assert settings.logging.enabled is False
+    assert settings.logging.path == log_path
+    assert settings.logging.store_rows is True
+
+
+def test_passive_harness_skips_recorder_without_logging(monkeypatch: pytest.MonkeyPatch) -> None:
+    invoked = False
+
+    def _fail_recorder(*_args: object, **_kwargs: object) -> object:
+        nonlocal invoked
+        invoked = True
+        raise AssertionError("Recorder should not be constructed when logging is disabled")
+
+    monkeypatch.setattr(logging_mod, "StateControlRecorder", _fail_recorder)
+
+    captured_hooks: dict[str, object] = {}
+
+    def fake_headless(env: object, *, duration: object, max_steps: object, hooks: Sequence) -> int:
+        captured_hooks["count"] = len(tuple(hooks))
+        return 0
+
+    monkeypatch.setattr(runtime, "run_passive_headless", fake_headless)
+
+    class DummyEnv:
+        pass
+
+    harness = PassiveRunHarness(lambda: DummyEnv())
+    settings = PassiveRunSettings.from_flags()
+
+    result = harness.run(settings)
+
+    assert result.recorder is None
+    assert captured_hooks.get("count") == 0
+    assert invoked is False
+
+
+def test_passive_harness_uses_recorder_when_logging_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enters: list[int] = []
+
+    class DummyRecorder:
+        def __init__(self, env: object, *, log_path: Path | None, store_rows: bool, probes: Sequence) -> None:
+            self.env = env
+            self.log_path = log_path
+            self.store_rows = store_rows
+            self.probes = tuple(probes)
+            self.rows: list[object] = []
+
+        def __enter__(self) -> "DummyRecorder":
+            enters.append(1)
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            enters.append(-1)
+            return False
+
+        def __call__(self, result: object) -> None:
+            self.rows.append(result)
+
+    monkeypatch.setattr(logging_mod, "StateControlRecorder", DummyRecorder)
+
+    captured_hooks: dict[str, object] = {}
+
+    def fake_headless(env: object, *, duration: object, max_steps: object, hooks: Sequence) -> int:
+        captured_hooks["count"] = len(tuple(hooks))
+        for _ in range(3):
+            for hook in hooks:
+                hook(object())
+        return 3
+
+    monkeypatch.setattr(runtime, "run_passive_headless", fake_headless)
+
+    class DummyEnv:
+        pass
+
+    harness = PassiveRunHarness(lambda: DummyEnv())
+    settings = PassiveRunSettings.from_flags(logging=True)
+
+    result = harness.run(settings)
+
+    assert isinstance(result.recorder, DummyRecorder)
+    assert result.recorder.log_path == settings.logging.path
+    assert result.recorder.store_rows is True
+    assert captured_hooks.get("count") == 1
+    assert len(result.recorder.rows) == 3
+    assert enters == [1, -1]
 
 def test_passive_viewer_ignores_simulation_max_steps(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_dummy_recorder(monkeypatch)

@@ -3,10 +3,10 @@ from types import SimpleNamespace
 
 import mujoco_template as mt
 
-RUN_SETTINGS = mt.PassiveRunSettings(
-    simulation=mt.SimulationSettings(max_steps=600, duration_seconds=None, sample_stride=120),
-    video=mt.VideoSettings(
-        enabled=False,
+RUN_SETTINGS = mt.PassiveRunSettings.from_flags(
+    logging=True,
+    simulation_overrides=dict(max_steps=600, duration_seconds=None, sample_stride=120),
+    video_overrides=dict(
         path=Path("pendulum_passive.mp4"),
         fps=60.0,
         width=1280,
@@ -34,8 +34,7 @@ RUN_SETTINGS = mt.PassiveRunSettings(
             points_of_interest=("body:arm", "site:tip"),
         ),
     ),
-    viewer=mt.ViewerSettings(enabled=False, duration_seconds=None),
-    logging=mt.LoggingSettings(enabled=False, path=Path("pendulum_passive.csv"), store_rows=True),
+    logging_overrides=dict(path=Path("pendulum_passive.csv"), store_rows=True),
 )
 
 INITIAL_STATE = SimpleNamespace(angle_deg=90.0, velocity_deg=0.0)
