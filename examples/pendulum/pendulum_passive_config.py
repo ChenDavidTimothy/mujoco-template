@@ -6,7 +6,7 @@ import mujoco_template as mt
 RUN_SETTINGS = mt.PassiveRunSettings(
     simulation=mt.SimulationSettings(max_steps=600, duration_seconds=None, sample_stride=120),
     video=mt.VideoSettings(
-        enabled=True,
+        enabled=False,
         path=Path("pendulum_passive.mp4"),
         fps=60.0,
         width=1280,

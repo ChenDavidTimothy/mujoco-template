@@ -7,7 +7,7 @@ import mujoco_template as mt
 RUN_SETTINGS = mt.PassiveRunSettings(
     simulation=mt.SimulationSettings(max_steps=2000, duration_seconds=None, sample_stride=50),
     video=mt.VideoSettings(
-        enabled=True,
+        enabled=False,
         path=Path("cartpole.mp4"),
         fps=60.0,
         width=1280,

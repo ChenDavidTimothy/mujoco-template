@@ -11,17 +11,15 @@ import mujoco_template as mt
 DRONE_XML = Path(__file__).with_name("scene.xml")
 
 
-def load_model_handle() -> mt.ModelHandle:
-    """Return a model handle for the Skydio X2 drone scene."""
-
-    return mt.ModelHandle.from_xml_path(str(DRONE_XML))
-
-
 def make_env(*, obs_spec: mt.ObservationSpec, controller: mt.Controller | None = None, **env_kwargs) -> mt.Env:
     """Construct an environment bound to the drone model."""
 
-    handle = load_model_handle()
-    return mt.Env(handle, obs_spec=obs_spec, controller=controller, **env_kwargs)
+    return mt.Env.from_xml_path(
+        str(DRONE_XML),
+        obs_spec=obs_spec,
+        controller=controller,
+        **env_kwargs,
+    )
 
 
 def quat_wxyz_from_body_euler(
@@ -79,7 +77,6 @@ def make_navigation_probes(env: mt.Env) -> Sequence[mt.DataProbe]:
 
 __all__ = [
     "DRONE_XML",
-    "load_model_handle",
     "make_env",
     "quat_wxyz_from_body_euler",
     "make_navigation_probes",
