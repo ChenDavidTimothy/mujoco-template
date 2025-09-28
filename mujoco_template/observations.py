@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 import warnings
 
@@ -9,6 +9,26 @@ import numpy as np
 
 from .exceptions import NameLookupError
 from ._typing import Observation, ObservationDict
+
+
+@dataclass(frozen=True)
+class ObservationProducer:
+    """Callable wrapper for user-defined observation slices."""
+
+    fn: Callable[[mj.MjModel, mj.MjData], np.ndarray | Sequence[float]]
+    copy: bool | None = None
+
+    def produce(self, model: mj.MjModel, data: mj.MjData, default_copy: bool) -> np.ndarray:
+        result = self.fn(model, data)
+        copy_flag = default_copy if self.copy is None else bool(self.copy)
+        if isinstance(result, np.ndarray):
+            if copy_flag:
+                return np.array(result, copy=True)
+            return result
+        array = np.asarray(result)
+        if copy_flag:
+            return np.array(array, copy=True)
+        return array
 
 
 @dataclass
@@ -33,6 +53,11 @@ class ObservationSpec:
     subtree_com: Sequence[str] = field(default_factory=tuple)
     as_dict: bool = True
     bodies_inertial: bool = False
+    extras: Mapping[
+        str,
+        ObservationProducer
+        | Callable[[mj.MjModel, mj.MjData], np.ndarray | Sequence[float]],
+    ] = field(default_factory=dict)
     copy: bool = False
 
 
@@ -44,6 +69,9 @@ class ObservationExtractor:
         self.body_ids = tuple(self._name2id(mj.mjtObj.mjOBJ_BODY, n) for n in spec.bodies_pos)
         self.geom_ids = tuple(self._name2id(mj.mjtObj.mjOBJ_GEOM, n) for n in spec.geoms_pos)
         self.subtree_ids = tuple(self._name2id(mj.mjtObj.mjOBJ_BODY, n) for n in spec.subtree_com)
+        self.extra_items = tuple(
+            (name, self._normalize_extra(name, producer)) for name, producer in spec.extras.items()
+        )
 
         self._warned_missing_act = False
         self._warned_missing_sensordata = False
@@ -54,6 +82,18 @@ class ObservationExtractor:
         if idx < 0:
             raise NameLookupError(f"Name not found in model: {name}")
         return idx
+
+    def _normalize_extra(
+        self,
+        name: str,
+        producer: ObservationProducer
+        | Callable[[mj.MjModel, mj.MjData], np.ndarray | Sequence[float]],
+    ) -> ObservationProducer:
+        if isinstance(producer, ObservationProducer):
+            return producer
+        if callable(producer):
+            return ObservationProducer(producer)
+        raise TypeError(f"extras[{name!r}] must be callable or ObservationProducer")
 
     def __call__(self, data: mj.MjData) -> Observation:
         out: ObservationDict = {}
@@ -123,6 +163,11 @@ class ObservationExtractor:
                     pos[i] = data.subtree_com[bid]
                 out["subtree_com"] = pos
 
+        for name, producer in self.extra_items:
+            if name in out:
+                raise ValueError(f"extras[{name!r}] duplicates an existing observation key")
+            out[name] = producer.produce(self.model, data, self.spec.copy)
+
         if self.spec.as_dict:
             return out
         flat = [out[k].ravel() for k in sorted(out.keys())]
@@ -132,4 +177,5 @@ class ObservationExtractor:
 __all__ = [
     "ObservationSpec",
     "ObservationExtractor",
+    "ObservationProducer",
 ]

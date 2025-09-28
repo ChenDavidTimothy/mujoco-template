@@ -16,6 +16,7 @@ from mujoco_template import (
     Observation,
     ObservationSpec,
     ObservationExtractor,
+    ObservationProducer,
     ModelHandle,
     ControllerCapabilities,
     ControlSpace,
@@ -246,6 +247,42 @@ def test_observation_extractor_zero_copy_flag(handle: ModelHandle) -> None:
     assert not np.shares_memory(obs_copy["qpos"], handle.data.qpos)
 
 
+def test_observation_extractor_custom_extras(handle: ModelHandle) -> None:
+    spec = ObservationSpec(
+        include_qpos=False,
+        include_qvel=False,
+        copy=True,
+        extras={
+            "bias": ObservationProducer(lambda _m, d: d.qfrc_bias, copy=False),
+            "copied_qpos": ObservationProducer(lambda _m, d: d.qpos, copy=True),
+        },
+    )
+    extractor = ObservationExtractor(handle.model, spec)
+    obs = extractor(handle.data)
+
+    assert set(obs) == {"bias", "copied_qpos"}
+    assert obs["bias"].shape == (handle.model.nv,)
+    assert obs["copied_qpos"].shape == (handle.model.nq,)
+    assert np.shares_memory(obs["bias"], handle.data.qfrc_bias)
+    assert not np.shares_memory(obs["copied_qpos"], handle.data.qpos)
+
+    spec_array = ObservationSpec(
+        include_qpos=False,
+        include_qvel=False,
+        as_dict=False,
+        extras={"bias": lambda _m, d: d.qfrc_bias},
+    )
+    extractor_array = ObservationExtractor(handle.model, spec_array)
+    arr = extractor_array(handle.data)
+    assert isinstance(arr, np.ndarray)
+    assert arr.shape == (handle.model.nv,)
+
+    spec_dup = ObservationSpec(include_qpos=True, extras={"qpos": lambda _m, d: d.qpos})
+    extractor_dup = ObservationExtractor(handle.model, spec_dup)
+    with pytest.raises(ValueError):
+        extractor_dup(handle.data)
+
+
 def test_observation_extractor_missing_sensors_warns_once() -> None:
     xml_no_sensor = """
     <mujoco model="no-sensor">
@@ -444,6 +481,53 @@ def test_env_step_invokes_controller_and_produces_precomputes() -> None:
     A_lin, B_lin = env.linearize()
     assert A_lin.shape == (nx, nx)
     assert B_lin.shape == (nx, env.model.nu)
+
+
+def test_env_step_accumulates_substep_instrumentation() -> None:
+    handle = ModelHandle.from_xml_string(BASE_XML)
+    handle.forward()
+
+    class LinearizingController:
+        def __init__(self) -> None:
+            self.capabilities = ControllerCapabilities(
+                control_space=ControlSpace.TORQUE,
+                needs_linearization=True,
+                needs_jacobians=("site:tip",),
+            )
+
+        def prepare(self, model: mj.MjModel, data: mj.MjData) -> None:
+            pass
+
+        def __call__(self, model: mj.MjModel, data: mj.MjData, t: float) -> None:
+            data.ctrl[:] = 0.0
+
+    controller = LinearizingController()
+    env = Env(
+        handle,
+        controller=controller,
+        obs_spec=ObservationSpec(include_qpos=True, include_time=True),
+    )
+
+    env.reset()
+    result = env.step(n=3)
+
+    assert isinstance(result.info["A"], list)
+    assert isinstance(result.info["B"], list)
+    assert isinstance(result.info["jacobians"], list)
+
+    assert len(result.info["A"]) == 3
+    assert len(result.info["B"]) == 3
+    assert len(result.info["jacobians"]) == 3
+
+    nx = 2 * env.model.nv
+    for A_block, B_block, jac_block in zip(
+        result.info["A"], result.info["B"], result.info["jacobians"]
+    ):
+        assert isinstance(A_block, np.ndarray)
+        assert isinstance(B_block, np.ndarray)
+        assert A_block.shape == (nx, nx)
+        assert B_block.shape == (nx, env.model.nu)
+        assert "site:tip" in jac_block
 
 def test_steady_ctrl0_preserves_state(handle: ModelHandle) -> None:
     model = handle.model

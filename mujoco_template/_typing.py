@@ -7,7 +7,19 @@ ObservationArray = np.ndarray
 Observation = ObservationDict | ObservationArray
 JacobianDict = dict[str, np.ndarray]
 JacobiansDict = dict[str, JacobianDict]
-InfoDict = dict[str, str | float | int | np.ndarray | list[str] | JacobiansDict]
+InfoDict = dict[
+    str,
+    str
+    | float
+    | int
+    | np.ndarray
+    | list[str]
+    | JacobiansDict
+    | list[np.ndarray]
+    | tuple[np.ndarray, ...]
+    | list[JacobiansDict]
+    | tuple[JacobiansDict, ...]
+]
 StateSnapshot = dict[str, np.ndarray | float | None]
 
 __all__ = [
