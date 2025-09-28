@@ -5,6 +5,7 @@ import csv
 import importlib
 import time
 from collections.abc import Callable, Iterable, Iterator, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import TracebackType
@@ -188,6 +189,50 @@ class PassiveRunSettings:
     viewer: ViewerSettings = field(default_factory=ViewerSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
 
+    @classmethod
+    def from_flags(
+        cls,
+        *,
+        viewer: bool = False,
+        video: bool = False,
+        logging: bool = False,
+        simulation: SimulationSettings | None = None,
+        simulation_overrides: dict[str, Any] | None = None,
+        video_overrides: dict[str, Any] | None = None,
+        viewer_overrides: dict[str, Any] | None = None,
+        logging_overrides: dict[str, Any] | None = None,
+    ) -> PassiveRunSettings:
+        """Construct settings from booleans while keeping full dataclasses inspectable."""
+
+        simulation_cfg = simulation if simulation is not None else SimulationSettings()
+        if simulation_overrides:
+            simulation_cfg = replace(simulation_cfg, **simulation_overrides)
+
+        video_cfg = VideoSettings(enabled=video)
+        if video_overrides:
+            video_cfg = replace(video_cfg, **video_overrides)
+        if video:
+            video_cfg = replace(video_cfg, enabled=True)
+
+        viewer_cfg = ViewerSettings(enabled=viewer)
+        if viewer_overrides:
+            viewer_cfg = replace(viewer_cfg, **viewer_overrides)
+        if viewer:
+            viewer_cfg = replace(viewer_cfg, enabled=True)
+
+        logging_cfg = LoggingSettings(enabled=logging)
+        if logging_overrides:
+            logging_cfg = replace(logging_cfg, **logging_overrides)
+        if logging:
+            logging_cfg = replace(logging_cfg, enabled=True)
+
+        return cls(
+            simulation=simulation_cfg,
+            video=video_cfg,
+            viewer=viewer_cfg,
+            logging=logging_cfg,
+        )
+
 
 def _resolved_settings(
     settings: PassiveRunSettings,
@@ -215,7 +260,7 @@ class PassiveRunResult:
     env: Env
     settings: PassiveRunSettings
     steps: int
-    recorder: "StateControlRecorder"
+    recorder: "StateControlRecorder" | None
     log_path: Path | None
     video_path: Path | None
 
@@ -282,23 +327,33 @@ class PassiveRunHarness:
         probes_tuple = tuple(resolved_probes) if resolved_probes is not None else ()
 
         log_path = resolved.logging.path if resolved.logging.enabled else None
-        store_rows = self._store_rows_override
-        if store_rows is None:
-            store_rows = resolved.logging.store_rows if resolved.logging.enabled else True
-        store_rows_flag = bool(store_rows)
-
-        recorder = StateControlRecorder(
-            env,
-            log_path=log_path,
-            store_rows=store_rows_flag,
-            probes=probes_tuple,
+        store_rows_setting = (
+            resolved.logging.store_rows if resolved.logging.enabled else False
         )
+        if self._store_rows_override is not None:
+            store_rows_setting = bool(self._store_rows_override)
+
+        needs_recorder = (
+            resolved.logging.enabled
+            or store_rows_setting
+            or bool(probes_tuple)
+        )
+
+        recorder: StateControlRecorder | None = None
+        if needs_recorder:
+            recorder = StateControlRecorder(
+                env,
+                log_path=log_path,
+                store_rows=bool(store_rows_setting),
+                probes=probes_tuple,
+            )
 
         hooks: list[StepHook] = []
         if self._hooks_factory is not None:
             extra_hooks = _normalize_hooks(self._hooks_factory(env))
             hooks.extend(extra_hooks)
-        hooks.append(recorder)
+        if recorder is not None:
+            hooks.append(recorder)
 
         video_path: Path | None = None
         video_encoder: VideoEncoderSettings | None = (
@@ -315,7 +370,9 @@ class PassiveRunHarness:
         if self._start_message is not None:
             print(self._start_message)
 
-        with recorder:
+        recorder_context = recorder if recorder is not None else nullcontext()
+
+        with recorder_context:
             if resolved.viewer.enabled:
                 steps = run_passive_viewer(
                     env,

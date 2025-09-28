@@ -5,10 +5,10 @@ import mujoco_template as mt
 
 from drone_common import quat_wxyz_from_body_euler
 
-RUN_SETTINGS = mt.PassiveRunSettings(
-    simulation=mt.SimulationSettings(max_steps=4000, duration_seconds=8.0, sample_stride=80),
-    video=mt.VideoSettings(
-        enabled=False,
+RUN_SETTINGS = mt.PassiveRunSettings.from_flags(
+    logging=True,
+    simulation_overrides=dict(max_steps=4000, duration_seconds=8.0, sample_stride=80),
+    video_overrides=dict(
         path=Path("drone_lqr.mp4"),
         fps=60.0,
         width=1280,
@@ -33,13 +33,10 @@ RUN_SETTINGS = mt.PassiveRunSettings(
             smoothing_time_constant=0.05,
             recenter_axis="x,y,z",
             recenter_time_constant=0.5,
-            points_of_interest=(
-                "body:x2",
-            ),
+            points_of_interest=("body:x2",),
         ),
     ),
-    viewer=mt.ViewerSettings(enabled=False, duration_seconds=None),
-    logging=mt.LoggingSettings(enabled=False, path=Path("drone_lqr.csv"), store_rows=True),
+    logging_overrides=dict(path=Path("drone_lqr.csv"), store_rows=True),
 )
 
 TRAJECTORY = SimpleNamespace(

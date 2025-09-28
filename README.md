@@ -47,9 +47,10 @@ harness = mt.PassiveRunHarness(
     probes=make_probes,  # optional callable returning DataProbe instances
 )
 
-settings = mt.PassiveRunSettings(
-    simulation=mt.SimulationSettings(max_steps=2_000),
-    logging=mt.LoggingSettings(enabled=True, path="trajectory.csv"),
+settings = mt.PassiveRunSettings.from_flags(
+    logging=True,
+    simulation_overrides={"max_steps": 2_000},
+    logging_overrides={"path": "trajectory.csv"},
 )
 
 result = harness.run_from_cli(settings)
@@ -71,7 +72,7 @@ Controllers implement the `Controller` protocol (`prepare`, `__call__`, and a `C
 When a controller declares `needs_linearization` or `needs_jacobians`, `Env.step` precomputes discrete-time `(A, B)` matrices and requested Jacobians immediately after the controller writes controls and before advancing the simulation. Results are surfaced once per step through the `StepResult.info` dict. You can also call `env.linearize()` directly to reuse the native-or-fallback finite difference logic.
 
 ## Logging and Runtime Helpers
-`TrajectoryLogger` outputs CSV trajectories with custom formatting logic. `StateControlRecorder` provides a ready-to-use `StepHook` that records time, qpos, qvel, controls, and optional derived probes on every step. The runtime module also includes `iterate_passive`, `run_passive_headless`, and `run_passive_viewer` to drive simulations in headless or interactive viewer modes.
+`TrajectoryLogger` outputs CSV trajectories with custom formatting logic. `PassiveRunSettings.from_flags` gives you the same nested dataclasses that power the harness without repeating every field; inspect `settings.video`, `settings.viewer`, and `settings.logging` to see and tweak all knobs. `StateControlRecorder` now materializes only when logging, probes, or in-memory row capture are requested, so "just run headless" flows skip recorder scaffolding by default. The runtime module also includes `iterate_passive`, `run_passive_headless`, and `run_passive_viewer` to drive simulations in headless or interactive viewer modes.
 
 ### Adaptive Framing Camera for Video Export
 
@@ -83,7 +84,7 @@ Self-contained MJCF examples live under `examples/`:
 - `examples/cartpole` - cart-pole models and scripts.
 - `examples/humanoid` - LQR balancing controller for the MuJoCo humanoid.
 
-Each example directory contains the MJCF file plus convenience scripts that showcase how to assemble controllers, observation specs, and runtime utilities. Runtime defaults now live in dedicated config modules (for example `examples/cartpole/cartpole_config.py`). The scripts only accept the activation flags `--viewer`, `--video`, and `--logs`; all other parameters are configured in the companion config file so the source of truth is explicit.
+Each example directory contains the MJCF file plus convenience scripts that showcase how to assemble controllers, observation specs, and runtime utilities. Runtime defaults now live in dedicated config modules (for example `examples/cartpole/cartpole_config.py`) and all of them build `PassiveRunSettings` via `from_flags`, so you can flip viewer/video/logging toggles concisely and still inspect or override any nested field in Python. The scripts only accept the activation flags `--viewer`, `--video`, and `--logs`; all other parameters are configured in the companion config file so the source of truth is explicit.
 
 ## Testing
 Run the test suite with:
