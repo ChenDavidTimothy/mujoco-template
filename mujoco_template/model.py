@@ -11,9 +11,13 @@ from .exceptions import CompatibilityError, ConfigError, NameLookupError, Templa
 class ModelHandle:
     """Owns (model, data) and provides native resets, propagation, and actuator group toggling."""
 
-    def __init__(self, model: mj.MjModel):
+    def __init__(self, model: mj.MjModel, data: mj.MjData | None = None):
         self.model = model
-        self.data = mj.MjData(model)
+        if data is None:
+            data = mj.MjData(model)
+        elif data.model is not model:
+            raise ConfigError("Provided mj.MjData must reference the supplied model.")
+        self.data = data
 
     @classmethod
     def from_xml_path(cls, xml_path: str) -> "ModelHandle":
@@ -31,6 +35,12 @@ class ModelHandle:
             raise ConfigError("This MuJoCo build has no from_binary_path().")
         model = mj.MjModel.from_binary_path(mjb_path)
         return cls(model)
+
+    @classmethod
+    def from_model_and_data(cls, model: mj.MjModel, data: mj.MjData) -> "ModelHandle":
+        """Wrap an existing (model, data) pair without allocating a new buffer."""
+
+        return cls(model, data=data)
 
     def save_binary(self, mjb_path: str) -> None:
         if not hasattr(mj, "mj_saveModel"):

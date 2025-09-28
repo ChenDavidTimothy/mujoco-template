@@ -19,7 +19,7 @@ from .observations import ObservationExtractor, ObservationSpec
 
 @dataclass
 class StepResult:
-    obs: Observation
+    obs: Observation | None
     reward: float | None
     done: bool
     info: InfoDict
@@ -149,7 +149,7 @@ class Env:
             self.controller.prepare(self.model, self.data)
         return self.extractor(self.data)
 
-    def step(self, n: int = 1) -> StepResult:
+    def step(self, n: int = 1, *, return_obs: bool = True) -> StepResult:
         if n < 1:
             raise ConfigError("Env.step(n): n must be >= 1")
 
@@ -173,15 +173,25 @@ class Env:
             self.handle.step()
             self._substep += 1
 
-        obs_next = self.extractor(self.data)
-        reward = self.reward_fn(self.model, self.data, obs_next) if self.reward_fn else None
-        done = bool(self.done_fn(self.model, self.data, obs_next)) if self.done_fn else False
-        if self.info_fn:
-            extra = self.info_fn(self.model, self.data, obs_next)
-            for key in extra:
-                if key in info:
-                    raise TemplateError(f"info key collision: {key}")
-                info[key] = extra[key]
+        obs_next: Observation | None
+        if return_obs:
+            obs_next = self.extractor(self.data)
+        else:
+            obs_next = None
+
+        reward: float | None = None
+        done = False
+        if return_obs and obs_next is not None:
+            if self.reward_fn:
+                reward = self.reward_fn(self.model, self.data, obs_next)
+            if self.done_fn:
+                done = bool(self.done_fn(self.model, self.data, obs_next))
+            if self.info_fn:
+                extra = self.info_fn(self.model, self.data, obs_next)
+                for key in extra:
+                    if key in info:
+                        raise TemplateError(f"info key collision: {key}")
+                    info[key] = extra[key]
         return StepResult(obs=obs_next, reward=reward, done=done, info=info)
 
     def linearize(self, eps: float = 1e-6, horizon_steps: int = 1) -> tuple[np.ndarray, np.ndarray]:
@@ -195,12 +205,23 @@ class Env:
         duration: float | None = None,
         max_steps: int | None = None,
         hooks: Callable[[StepResult], None] | Iterable[Callable[[StepResult], None]] | None = None,
+        return_obs: bool = True,
     ) -> Iterator[StepResult]:
-        """Yield passive simulation steps using :func:`runtime.iterate_passive`."""
+        """Yield passive simulation steps using :func:`runtime.iterate_passive`.
+
+        Set ``return_obs=False`` to skip observation extraction and downstream
+        hooks during the passive rollout.
+        """
 
         from .runtime import iterate_passive
 
-        yield from iterate_passive(self, duration=duration, max_steps=max_steps, hooks=hooks)
+        yield from iterate_passive(
+            self,
+            duration=duration,
+            max_steps=max_steps,
+            hooks=hooks,
+            return_obs=return_obs,
+        )
 
 
 __all__ = ["Env", "StepResult"]

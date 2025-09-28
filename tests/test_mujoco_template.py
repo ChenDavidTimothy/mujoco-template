@@ -12,6 +12,7 @@ import mujoco_template.logging as logging_mod
 
 from mujoco_template import (
     AdaptiveCameraSettings,
+    ConfigError,
     Observation,
     ObservationSpec,
     ObservationExtractor,
@@ -67,6 +68,100 @@ def handle() -> ModelHandle:
     handle = ModelHandle.from_xml_string(BASE_XML)
     handle.forward()
     return handle
+
+
+def test_model_handle_wraps_existing_data() -> None:
+    model = mj.MjModel.from_xml_string(BASE_XML)
+    data = mj.MjData(model)
+    data.qpos[0] = 0.25
+
+    handle = ModelHandle.from_model_and_data(model, data)
+
+    assert handle.model is model
+    assert handle.data is data
+
+    env = Env(handle, obs_spec=ObservationSpec(include_qpos=True))
+    assert env.data is data
+
+    env.reset()
+    assert env.data is data
+
+
+def test_model_handle_rejects_mismatched_data() -> None:
+    model_a = mj.MjModel.from_xml_string(BASE_XML)
+    model_b = mj.MjModel.from_xml_string(BASE_XML)
+    data_b = mj.MjData(model_b)
+
+    with pytest.raises(ConfigError):
+        ModelHandle(model_a, data=data_b)
+
+
+def test_env_step_can_skip_observation_and_hooks(handle: ModelHandle) -> None:
+    calls = {"extract": 0, "reward": 0, "done": 0, "info": 0}
+
+    def reward_fn(model: mj.MjModel, data: mj.MjData, obs: Observation) -> float:
+        calls["reward"] += 1
+        return 0.0
+
+    def done_fn(model: mj.MjModel, data: mj.MjData, obs: Observation) -> bool:
+        calls["done"] += 1
+        return False
+
+    def info_fn(
+        model: mj.MjModel, data: mj.MjData, obs: Observation
+    ) -> dict[str, str | float | int | np.ndarray]:
+        calls["info"] += 1
+        return {"value": float(data.time)}
+
+    env = Env(
+        handle,
+        obs_spec=ObservationSpec(include_qpos=True),
+        reward_fn=reward_fn,
+        done_fn=done_fn,
+        info_fn=info_fn,
+    )
+
+    original_extractor = env.extractor
+
+    def counting_extractor(data: mj.MjData) -> Observation:
+        calls["extract"] += 1
+        return original_extractor(data)
+
+    env.extractor = counting_extractor  # type: ignore[assignment]
+
+    env.reset()
+    for key in calls:
+        calls[key] = 0
+
+    result = env.step(return_obs=False)
+
+    assert calls == {"extract": 0, "reward": 0, "done": 0, "info": 0}
+    assert result.obs is None
+    assert result.reward is None
+    assert result.done is False
+    assert result.info == {}
+
+
+def test_iterate_passive_respects_return_obs_flag(handle: ModelHandle) -> None:
+    env = Env(handle, obs_spec=ObservationSpec(include_qpos=True))
+
+    original_extractor = env.extractor
+    extract_calls = 0
+
+    def counting_extractor(data: mj.MjData) -> Observation:
+        nonlocal extract_calls
+        extract_calls += 1
+        return original_extractor(data)
+
+    env.extractor = counting_extractor  # type: ignore[assignment]
+
+    env.reset()
+    extract_calls = 0
+
+    results = list(runtime.iterate_passive(env, max_steps=2, return_obs=False))
+
+    assert extract_calls == 0
+    assert all(result.obs is None for result in results)
 
 def test_observation_extractor_dict_and_array(handle: ModelHandle) -> None:
     subtree = ("torso",) if hasattr(mj, "mj_subtreeCoM") else ()
