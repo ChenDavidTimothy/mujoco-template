@@ -1,3 +1,4 @@
+
 """Straightforward Skydio X2 LQR example that always uses the passive-run harness."""
 
 from __future__ import annotations
@@ -6,6 +7,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
+
 
 import numpy as np
 import scipy.linalg
@@ -22,6 +24,7 @@ SCENE_XML = Path(__file__).with_name("scene.xml")
 
 @dataclass(frozen=True)
 class _DroneParameters:
+
     keyframe: str = "hover"
     linearization_eps: float = 1e-4
     max_steps: int = 4000
@@ -154,13 +157,11 @@ def _normalize_position(vec: Sequence[float]) -> np.ndarray:
         raise mt.ConfigError("Positions must provide exactly 3 entries.")
     return arr
 
-
 def _site_id(model: mt.mj.MjModel, name: str) -> int:
     site_id = int(mt.mj.mj_name2id(model, mt.mj.mjtObj.mjOBJ_SITE, name))
     if site_id < 0:
         raise mt.NameLookupError(f"Site not found: {name}")
     return site_id
-
 
 class _InlineDroneLQR(mt.Controller):
     capabilities = mt.ControllerCapabilities(control_space=mt.ControlSpace.TORQUE)
@@ -610,3 +611,4 @@ if __name__ == "__main__":  # pragma: no cover - CLI entry point
 
 
 __all__ = ["RUN_SETTINGS", "HARNESS", "summarize", "main"]
+
